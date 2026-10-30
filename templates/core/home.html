@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block title %}Curator — Your class, in conversation{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <p class="eyebrow">A space for your class</p>
+    <h1>Good ideas grow<br>in good company.</h1>
+    <p class="intro">Curator brings class conversations, announcements, and
+        shared resources together in one welcoming space.</p>
+    <a class="button" href="{% url 'admin:index' %}">Explore the admin</a>
+</section>
+{% endblock %}
