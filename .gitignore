@@ -426,3 +426,18 @@ FodyWeavers.xsd
 
 # Official VS Code C# Dev Kit Extension exclusion
 #*.lscache
+
+# Python / Django
+.venv/
+venv/
+env/
+*.sqlite3
+db.sqlite3-journal
+staticfiles/
+media/
+.env
+.env.*
+!.env.example
+
+# CoR samples contain personal data
+cor_samples/
