@@ -8,8 +8,9 @@ from django.urls import reverse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 
-from apps.accounts.forms import RegistrationForm
 from apps.accounts.forms import EmailAuthenticationForm
+from apps.accounts.decorators import verified_required
+from apps.accounts.forms import RegistrationForm
 from apps.accounts.models import User
 from apps.accounts.tokens import (
     consume_email_verification_token,
@@ -50,6 +51,11 @@ def register(request):
 
 def registration_complete(request):
     return render(request, "accounts/registration_complete.html")
+
+
+@verified_required
+def dashboard(request):
+    return render(request, "accounts/dashboard.html")
 
 
 login_view = LoginView.as_view(

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Email verification required — Curator{% endblock %}
+
+{% block content %}
+<section class="account-page">
+    <div class="account-card">
+        <p class="eyebrow">Access restricted</p>
+        <h1>Verify your email first</h1>
+        <p class="account-intro">
+            This account has not completed email verification, so protected
+            Curator pages are unavailable.
+        </p>
+        <a class="button" href="{% url 'core:home' %}">Return home</a>
+    </div>
+</section>
+{% endblock %}

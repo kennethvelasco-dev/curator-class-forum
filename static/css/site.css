@@ -156,6 +156,28 @@ h1 {
     font-size: 0.9rem;
 }
 
+.account-details {
+    display: grid;
+    gap: 1rem;
+    margin: 2rem 0;
+}
+
+.account-details div {
+    padding-bottom: 0.8rem;
+    border-bottom: 1px solid #40594c;
+}
+
+.account-details dt {
+    color: #c2d0c8;
+    font-size: 0.9rem;
+}
+
+.account-details dd {
+    margin: 0.25rem 0 0;
+    font-weight: 650;
+    overflow-wrap: anywhere;
+}
+
 .privacy-notice {
     padding: 1.25rem;
     border: 1px solid #40594c;

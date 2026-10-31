@@ -316,7 +316,7 @@ class EmailAuthenticationTests(TestCase):
             {"username": "student@example.com", "password": "StrongPass8"},
         )
 
-        self.assertRedirects(response, reverse("core:home"))
+        self.assertRedirects(response, reverse("accounts:dashboard"))
         self.assertTrue(response.wsgi_request.user.is_authenticated)
 
     def test_email_login_is_case_insensitive(self):
@@ -327,7 +327,7 @@ class EmailAuthenticationTests(TestCase):
             {"username": "STUDENT@EXAMPLE.COM", "password": "StrongPass8"},
         )
 
-        self.assertRedirects(response, reverse("core:home"))
+        self.assertRedirects(response, reverse("accounts:dashboard"))
         self.assertTrue(response.wsgi_request.user.is_authenticated)
 
     def test_unverified_user_cannot_sign_in(self):
@@ -449,4 +449,69 @@ class AccountAdminTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Invalid email or password.")
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+
+class AccountDashboardTests(TestCase):
+    def create_user(self, verified=True):
+        return User.objects.create_user(
+            email="student@example.com",
+            password="StrongPass8",
+            full_name="Test Student",
+            is_email_verified=verified,
+        )
+
+    def test_anonymous_visitor_is_redirected_to_login(self):
+        response = self.client.get(reverse("accounts:dashboard"))
+
+        self.assertRedirects(
+            response,
+            f"{reverse('accounts:login')}?next={reverse('accounts:dashboard')}",
+        )
+
+    def test_verified_user_can_view_dashboard(self):
+        user = self.create_user()
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("accounts:dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "accounts/dashboard.html")
+        self.assertContains(response, "Welcome, Test Student")
+        self.assertContains(response, "student@example.com")
+        self.assertContains(response, "Sign out")
+        self.assertContains(response, 'action="/accounts/logout/"')
+        self.assertContains(response, "csrfmiddlewaretoken")
+
+    def test_unverified_authenticated_user_is_denied_dashboard_access(self):
+        user = self.create_user(verified=False)
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("accounts:dashboard"))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTemplateUsed(
+            response,
+            "accounts/verification_required.html",
+        )
+
+    def test_dashboard_escapes_user_controlled_name(self):
+        user = self.create_user()
+        user.full_name = "<script>alert(1)</script>"
+        user.save(update_fields=["full_name"])
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("accounts:dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "<script>alert(1)</script>")
+        self.assertContains(response, "&lt;script&gt;")
+
+    def test_dashboard_logout_button_ends_authenticated_session(self):
+        user = self.create_user()
+        self.client.force_login(user)
+
+        response = self.client.post(reverse("accounts:logout"))
+
+        self.assertRedirects(response, reverse("accounts:login"))
         self.assertNotIn("_auth_user_id", self.client.session)
