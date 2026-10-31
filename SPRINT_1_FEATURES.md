@@ -156,7 +156,8 @@ Full officer assignment and channel permissions are outside Sprint 1.
 - [x] Validate input server-side.
 - [x] Store secrets in environment variables.
 - [x] Never commit .env.
-- [ ] Do not log passwords or verification tokens (the local console email backend prints verification links containing tokens).
+- [ ] Do not log passwords or verification tokens (the console backend is the default unless overridden and may expose token-bearing verification URLs in console output or application logs, including in production if misconfigured).
+- [x] Require a non-console email backend in production (`DJANGO_DEBUG=False`).
 - [x] Configure secure cookies and HTTPS for production (settings enable these when `DJANGO_DEBUG=False`; production proxy/deployment behavior still requires deployment verification).
 - [x] Minimize collection of personal information.
 - [x] Record consent appropriately.

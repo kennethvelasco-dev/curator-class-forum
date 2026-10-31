@@ -78,6 +78,12 @@ private value and set `DJANGO_DEBUG=False` outside local development.
 | `EMAIL_TIMEOUT` | `10` | Finite SMTP connection timeout in seconds |
 | `DEFAULT_FROM_EMAIL` | `Curator <noreply@localhost>` | Sender address for verification messages |
 
+The console email backend is for local development only and prints
+verification messages, including token-bearing links, to console output.
+When `DJANGO_DEBUG=False`, set `EMAIL_BACKEND` to a non-console backend such as
+`django.core.mail.backends.smtp.EmailBackend` and configure its delivery
+settings. Startup rejects the console backend in production mode.
+
 Registration links expire after 24 hours and can be used once. Opening a link
 does not create an account; the email owner sets the password and records
 consent on the linked form. Expired requests can be restarted without leaving
