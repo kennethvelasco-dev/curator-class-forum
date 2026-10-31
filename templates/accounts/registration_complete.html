@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block title %}Registration received — Curator{% endblock %}
+
+{% block content %}
+<section class="account-page">
+    <div class="account-card">
+        <p class="eyebrow">Registration received</p>
+        <h1>Check your institutional inbox</h1>
+        <p class="account-intro">
+            If this institutional email can be registered, a secure link will
+            arrive. Follow it to verify your email, choose a password, provide
+            consent, and finish creating your account.
+        </p>
+        <a class="button" href="{% url 'core:home' %}">Return home</a>
+    </div>
+</section>
+{% endblock %}

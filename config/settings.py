@@ -1,5 +1,6 @@
 """Settings for the Curator class forum."""
 
+import math
 import os
 from pathlib import Path
 
@@ -22,6 +23,26 @@ ALLOWED_HOSTS = [
     for host in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
     if host.strip()
 ]
+
+INSTITUTIONAL_EMAIL_DOMAIN = os.getenv(
+    "INSTITUTIONAL_EMAIL_DOMAIN",
+    "iskolarngbayan.pup.edu.ph",
+).strip().lower()
+
+EMAIL_BACKEND = os.getenv(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend",
+)
+EMAIL_HOST = os.getenv("EMAIL_HOST", "")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True").lower() in {"true", "1", "yes"}
+EMAIL_TIMEOUT = float(os.getenv("EMAIL_TIMEOUT", "10"))
+if not math.isfinite(EMAIL_TIMEOUT) or EMAIL_TIMEOUT <= 0:
+    raise ValueError("EMAIL_TIMEOUT must be a finite positive number of seconds.")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Curator <noreply@localhost>")
+EMAIL_VERIFICATION_TOKEN_TTL = 24 * 60 * 60
 
 
 # Application definition
@@ -91,6 +112,15 @@ DATABASES = {
 
 AUTH_PASSWORD_VALIDATORS = [
     {
+        "NAME": "apps.accounts.validators.UppercaseCharacterValidator",
+    },
+    {
+        "NAME": "apps.accounts.validators.LowercaseCharacterValidator",
+    },
+    {
+        "NAME": "apps.accounts.validators.DigitCharacterValidator",
+    },
+    {
         "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
@@ -131,5 +161,16 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
 
 LOGIN_URL = "accounts:login"
-LOGIN_REDIRECT_URL = "core:home"
+LOGIN_REDIRECT_URL = "accounts:dashboard"
 LOGOUT_REDIRECT_URL = "accounts:login"
+
+SESSION_COOKIE_AGE = 14 * 24 * 60 * 60
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SAMESITE = "Lax"
+SECURE_SSL_REDIRECT = not DEBUG
+SECURE_HSTS_SECONDS = 31_536_000 if not DEBUG else 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG

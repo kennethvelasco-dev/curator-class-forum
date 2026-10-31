@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Verify email — Curator{% endblock %}
+
+{% block content %}
+<section class="account-page">
+    <div class="account-card">
+        <p class="eyebrow">Email verification</p>
+        <h1>Confirm your email</h1>
+        <p class="account-intro">{{ message }} This request is for {{ verification_email }}.</p>
+        <form method="post" class="account-form">
+            {% csrf_token %}
+            <button class="button" type="submit">Verify email address</button>
+        </form>
+    </div>
+</section>
+{% endblock %}

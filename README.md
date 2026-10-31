@@ -31,22 +31,31 @@ python manage.py migrate
 python manage.py runserver
 ```
 
-Open <http://127.0.0.1:8000/> to view the starter page. Create an admin account
-with `python manage.py createsuperuser`; the admin is available at
-<http://127.0.0.1:8000/admin/>.
+Open <http://127.0.0.1:8000/> to view Curator. Local verification emails are
+printed to the runserver console by the default email backend. Create a
+platform administrator with `python manage.py createsuperuser`; the admin is
+available at <http://127.0.0.1:8000/admin/>.
 
 Run the test suite with `python manage.py test`.
 
 ## Routes
 
 - `/` — Curator homepage (`core:home`)
-- `/accounts/`, `/servers/`, `/channels/`, `/discussions/`,
-  `/announcements/`, and `/moderation/` — mounted app namespaces; endpoints are
-  not implemented yet
+- `/accounts/register/` — requests an institutional email verification link;
+  no account password is stored before email ownership is proven
+- `/accounts/verify-registration/<registration-id>/<token>/` — completes
+  registration with a password and required privacy consent; account creation
+  requires a POST, not merely opening the emailed link
+- `/accounts/verify/<user-id>/<token>/` — legacy account verification endpoint
+- `/accounts/login/` and `/accounts/logout/` — email sign-in and POST-only
+  sign-out
+- `/accounts/dashboard/` — protected account dashboard for verified users
+- `/servers/`, `/channels/`, `/discussions/`, `/announcements/`, and
+  `/moderation/` — mounted app namespaces; endpoints are not implemented yet
 - `/admin/` — Django administration
 
-These prefixes are registered for future feature routes; requests to them return
-404 until endpoints are added.
+Server, channel, discussion, announcement, and moderation routes are not
+implemented yet.
 
 ## Configuration
 
@@ -59,6 +68,29 @@ private value and set `DJANGO_DEBUG=False` outside local development.
 | `DJANGO_SECRET_KEY` | Local development-only key | Django secret key; required when debug is disabled |
 | `DJANGO_DEBUG` | `True` | Enables Django debug mode |
 | `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated allowed host names |
+| `INSTITUTIONAL_EMAIL_DOMAIN` | `iskolarngbayan.pup.edu.ph` | Institutional email domain allowed for account registration |
+| `EMAIL_BACKEND` | Django console backend | Local backend prints verification messages to the console |
+| `EMAIL_HOST` | Empty | SMTP host when using Django's SMTP backend |
+| `EMAIL_PORT` | `587` | SMTP port |
+| `EMAIL_HOST_USER` | Empty | SMTP username |
+| `EMAIL_HOST_PASSWORD` | Empty | SMTP password; keep private and out of Git |
+| `EMAIL_USE_TLS` | `True` | Whether SMTP uses TLS |
+| `EMAIL_TIMEOUT` | `10` | Finite SMTP connection timeout in seconds |
+| `DEFAULT_FROM_EMAIL` | `Curator <noreply@localhost>` | Sender address for verification messages |
+
+Registration links expire after 24 hours and can be used once. Opening a link
+does not create an account; the email owner sets the password and records
+consent on the linked form. Expired requests can be restarted without leaving
+an email address permanently reserved. User passwords are stored using
+Django's password hashing. Login sessions last 14 days.
+When `DJANGO_DEBUG=False`, Django redirects HTTP to HTTPS and enables secure
+session/CSRF cookies and HSTS; configure the deployment proxy and allowed hosts
+to preserve the original HTTPS scheme correctly.
+
+The account authorization foundation separates verified authentication from
+future resource authorization. Django staff/superuser access is for platform
+administration. Future President/Officer access must be checked against each
+server membership, not stored as a global User role.
 
 ## Project layout
 
@@ -70,7 +102,8 @@ private value and set `DJANGO_DEBUG=False` outside local development.
 
 ## Development status
 
-The project foundation is in place: the homepage renders through the shared
-base template, feature app URL namespaces are mounted, and a custom user model
-with its initial migration is defined. Authentication pages and the forum,
-class scheduling, and moderation features remain future work.
+Sprint 1 account functionality includes institutional registration, consent
+recording, email verification, email/password login, logout, a protected
+dashboard, and Django admin support for the custom email-based User model.
+Server creation, CoR uploads, discussions, scheduling, moderation, password
+reset, two-factor authentication, and social login remain out of scope.

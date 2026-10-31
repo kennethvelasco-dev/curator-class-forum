@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Create an account — Curator{% endblock %}
+
+{% block content %}
+<section class="account-page">
+    <div class="account-card">
+        <p class="eyebrow">Curator account</p>
+        <h1>Create your account</h1>
+        <p class="account-intro">
+            Start with your institutional email. We will email you a secure link;
+            your account and password are created only after you verify that
+            email address.
+        </p>
+
+        <form method="post" class="account-form">
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+                <div class="form-errors" role="alert">
+                    {{ form.non_field_errors }}
+                </div>
+            {% endif %}
+            {% for field in form %}
+                <div class="form-field">
+                    {{ field.label_tag }}
+                    {{ field }}
+                    {% if field.errors %}
+                        <div class="field-errors" role="alert">
+                            {{ field.errors }}
+                        </div>
+                    {% endif %}
+                </div>
+            {% endfor %}
+            <button class="button" type="submit">Continue with email</button>
+        </form>
+    </div>
+</section>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}Your account — Curator{% endblock %}
+
+{% block content %}
+<section class="account-page">
+    <div class="account-card">
+        <p class="eyebrow">Your account</p>
+        <h1>Welcome, {{ request.user.full_name }}</h1>
+        <dl class="account-details">
+            <div>
+                <dt>Full name</dt>
+                <dd>{{ request.user.full_name }}</dd>
+            </div>
+            <div>
+                <dt>Institutional email</dt>
+                <dd>{{ request.user.email }}</dd>
+            </div>
+        </dl>
+        <form method="post" action="{% url 'accounts:logout' %}">
+            {% csrf_token %}
+            <button class="button" type="submit">Sign out</button>
+        </form>
+    </div>
+</section>
+{% endblock %}

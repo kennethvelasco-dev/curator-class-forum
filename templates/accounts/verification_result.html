@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block title %}Email verification — Curator{% endblock %}
+
+{% block content %}
+<section class="account-page">
+    <div class="account-card">
+        <p class="eyebrow">Email verification</p>
+        <h1>{% if success %}Email verified{% else %}Verification unavailable{% endif %}</h1>
+        <p class="account-intro">{{ message }}</p>
+        {% if success %}
+            <a class="button" href="{% url 'accounts:login' %}">Sign in</a>
+        {% else %}
+            <a class="button" href="{% url 'core:home' %}">Return home</a>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}
