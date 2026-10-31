@@ -77,3 +77,17 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.full_name or self.email
+
+
+class EmailVerificationToken(models.Model):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="email_verification_tokens",
+    )
+    token_hash = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    used_at = models.DateTimeField(blank=True, null=True)
+
+    def __str__(self):
+        return f"Email verification for user {self.user_id}"
