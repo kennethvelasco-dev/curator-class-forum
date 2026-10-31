@@ -3,6 +3,7 @@
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.db.models.functions import Lower
 
 
 class UserManager(BaseUserManager):
@@ -64,6 +65,14 @@ class User(AbstractUser):
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["full_name"]
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                Lower("email"),
+                name="accounts_user_email_ci_unique",
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         self.email = UserManager.normalize_email(self.email)

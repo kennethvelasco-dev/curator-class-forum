@@ -1,9 +1,11 @@
 import hashlib
 import re
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.conf import settings
 from django.core import mail
+from django.db import IntegrityError, transaction
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -33,6 +35,33 @@ def registration_data(**overrides):
 
 @override_settings(INSTITUTIONAL_EMAIL_DOMAIN=REGISTRATION_DOMAIN)
 class RegistrationFormTests(TestCase):
+    def test_saving_user_normalizes_email(self):
+        user = User.objects.create_user(
+            email="  ADA@Example.COM ",
+            password="StrongPass8",
+            full_name="Ada Lovelace",
+        )
+
+        self.assertEqual(user.email, "ada@example.com")
+
+    def test_database_enforces_case_insensitive_email_uniqueness(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                User.objects.bulk_create(
+                    [
+                        User(
+                            email="ada@example.com",
+                            full_name="Ada",
+                            password="!",
+                        ),
+                        User(
+                            email="ADA@EXAMPLE.COM",
+                            full_name="Ada Duplicate",
+                            password="!",
+                        ),
+                    ]
+                )
+
     def test_registration_creates_unverified_user_and_records_consent(self):
         form = RegistrationForm(registration_data())
 
@@ -169,6 +198,19 @@ class RegistrationViewTests(TestCase):
             "This field is required.",
         )
         self.assertEqual(User.objects.count(), 0)
+
+    @patch("apps.accounts.views.send_mail", return_value=0)
+    def test_registration_does_not_leave_account_when_email_is_not_sent(self, send):
+        response = self.client.post(
+            reverse("accounts:register"),
+            registration_data(),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "We could not send the verification email")
+        self.assertEqual(User.objects.count(), 0)
+        self.assertEqual(EmailVerificationToken.objects.count(), 0)
+        send.assert_called_once()
 
 
 @override_settings(
@@ -413,6 +455,31 @@ class AccountAdminTests(TestCase):
         self.assertContains(add_response, 'name="full_name"')
         self.assertNotContains(add_response, 'name="username"')
 
+    def test_user_admin_can_create_an_account_without_username(self):
+        admin_user = User.objects.create_superuser(
+            email="admin@example.com",
+            password="StrongPass8",
+            full_name="Site Administrator",
+        )
+        self.client.force_login(admin_user)
+
+        response = self.client.post(
+            reverse("admin:accounts_user_add"),
+            {
+                "email": "new-user@example.com",
+                "full_name": "New User",
+                "password1": "StrongPass8",
+                "password2": "StrongPass8",
+                "_save": "Save",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        user = User.objects.get(email="new-user@example.com")
+        self.assertEqual(user.full_name, "New User")
+        self.assertTrue(user.check_password("StrongPass8"))
+
     def test_admin_login_requires_verified_superuser(self):
         User.objects.create_superuser(
             email="admin@example.com",
@@ -515,3 +582,59 @@ class AccountDashboardTests(TestCase):
 
         self.assertRedirects(response, reverse("accounts:login"))
         self.assertNotIn("_auth_user_id", self.client.session)
+
+
+@override_settings(
+    INSTITUTIONAL_EMAIL_DOMAIN=REGISTRATION_DOMAIN,
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+)
+class AccountFlowIntegrationTests(TestCase):
+    def test_registration_verification_login_dashboard_and_logout_flow(self):
+        registration_response = self.client.post(
+            reverse("accounts:register"),
+            registration_data(),
+        )
+        self.assertRedirects(
+            registration_response,
+            reverse("accounts:registration_complete"),
+        )
+        user = User.objects.get(email=f"ada@{REGISTRATION_DOMAIN}")
+        self.assertFalse(user.is_email_verified)
+
+        link = re.search(r"https?://\S+", mail.outbox[0].body).group()
+        verification_path = re.search(
+            r"https?://[^/]+(/.*)",
+            link,
+        ).group(1)
+        get_response = self.client.get(verification_path)
+        user.refresh_from_db()
+        self.assertEqual(get_response.status_code, 200)
+        self.assertFalse(user.is_email_verified)
+
+        verification_response = self.client.post(verification_path)
+        user.refresh_from_db()
+        self.assertEqual(verification_response.status_code, 200)
+        self.assertTrue(user.is_email_verified)
+
+        login_response = self.client.post(
+            reverse("accounts:login"),
+            {
+                "username": f"ADA@{REGISTRATION_DOMAIN.upper()}",
+                "password": "StrongPass8",
+            },
+        )
+        self.assertRedirects(
+            login_response,
+            reverse("accounts:dashboard"),
+        )
+        dashboard_response = self.client.get(reverse("accounts:dashboard"))
+        self.assertEqual(dashboard_response.status_code, 200)
+        self.assertContains(dashboard_response, "Ada Lovelace")
+
+        logout_response = self.client.post(reverse("accounts:logout"))
+        self.assertRedirects(logout_response, reverse("accounts:login"))
+        dashboard_response = self.client.get(reverse("accounts:dashboard"))
+        self.assertRedirects(
+            dashboard_response,
+            f"{reverse('accounts:login')}?next={reverse('accounts:dashboard')}",
+        )

@@ -3,6 +3,7 @@
 from django.conf import settings
 from django.contrib.auth.views import LoginView, LogoutView
 from django.core.mail import send_mail
+from django.db import transaction
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.cache import never_cache
@@ -23,26 +24,34 @@ def register(request):
     if request.method == "POST":
         form = RegistrationForm(request.POST)
         if form.is_valid():
-            user = form.save()
-            verification_url = request.build_absolute_uri(
-                reverse(
-                    "accounts:verify_email",
-                    args=[user.pk, issue_email_verification_token(user)],
+            with transaction.atomic():
+                user = form.save()
+                verification_url = request.build_absolute_uri(
+                    reverse(
+                        "accounts:verify_email",
+                        args=[user.pk, issue_email_verification_token(user)],
+                    )
                 )
-            )
-            send_mail(
-                subject="Verify your Curator email address",
-                message=(
-                    f"Hello {user.full_name},\n\n"
-                    "Confirm your email address by opening this link:\n"
-                    f"{verification_url}\n\n"
-                    "The link expires in 24 hours. Opening it will not verify "
-                    "your account; you must confirm on the page."
-                ),
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-            )
-            return redirect("accounts:registration_complete")
+                sent_count = send_mail(
+                    subject="Verify your Curator email address",
+                    message=(
+                        f"Hello {user.full_name},\n\n"
+                        "Confirm your email address by opening this link:\n"
+                        f"{verification_url}\n\n"
+                        "The link expires in 24 hours. Opening it will not verify "
+                        "your account; you must confirm on the page."
+                    ),
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                )
+                if sent_count != 1:
+                    transaction.set_rollback(True)
+                    form.add_error(
+                        None,
+                        "We could not send the verification email. Please try again.",
+                    )
+                else:
+                    return redirect("accounts:registration_complete")
     else:
         form = RegistrationForm()
 
