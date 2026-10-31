@@ -8,7 +8,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from apps.accounts.models import EmailVerificationToken
+from apps.accounts.models import EmailVerificationToken, PendingRegistration
 
 
 def _token_digest(raw_token):
@@ -38,6 +38,15 @@ def issue_email_verification_token(user):
         token_hash=_token_digest(raw_token),
     )
     return raw_token
+
+
+def issue_registration_token(email):
+    raw_token = secrets.token_urlsafe(32)
+    pending, created = PendingRegistration.objects.get_or_create(
+        email=email,
+        defaults={"token_hash": _token_digest(raw_token)},
+    )
+    return pending, raw_token if created else None
 
 
 def is_email_verification_token_valid(user_id, raw_token):

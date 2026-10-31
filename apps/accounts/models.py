@@ -100,3 +100,24 @@ class EmailVerificationToken(models.Model):
 
     def __str__(self):
         return f"Email verification for user {self.user_id}"
+
+
+class PendingRegistration(models.Model):
+    email = models.EmailField()
+    token_hash = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                Lower("email"),
+                name="accounts_pendingregistration_email_ci_unique",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.email = UserManager.normalize_email(self.email)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Pending registration for {self.email}"

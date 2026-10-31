@@ -21,14 +21,15 @@ Acceptance criteria:
 - A fresh clone can install dependencies, configure the environment, migrate the database, and run the application.
 - python manage.py check completes without errors.
 2. Custom user model
-FSD attributes include email, password hash, full name, student number, active status, and creation date.
+FSD attributes include email, password hash, full name, student number, active status, and creation date. Student number must not be required or collected during initial account registration. Collect it in the CoR join-request flow (UC-02); any User-model student-number field must remain optional until that workflow is implemented.
 - [ ] Inspect the existing apps/accounts implementation.
 - [ ] Confirm the custom User model is configured using AUTH_USER_MODEL.
 - [ ] Use institutional email as the login identifier.
 - [ ] Enforce unique email addresses.
 - [ ] Normalize email addresses.
 - [ ] Store the user's full name.
-- [ ] Store student number if required by the registration design.
+- [ ] Do not require or collect student number during initial account registration.
+- [ ] Collect student number through the CoR join-request flow (UC-02), when implemented.
 - [ ] Use Django's built-in password hashing.
 - [ ] Support account active/inactive status.
 - [ ] Add account creation timestamp.
@@ -41,6 +42,8 @@ FSD: FR-001 and FR-003.
 - [ ] Create registration page.
 - [ ] Create registration form.
 - [ ] Collect required user information.
+- [ ] Collect only the institutional email before email ownership is proven; do not persist a password or create a User at this stage.
+- [ ] After a valid emailed link is submitted, collect full name, password, and explicit privacy consent to complete account creation.
 - [ ] Validate institutional email addresses.
 - [ ] Make the allowed email domain configurable.
 - [ ] Use iskolarngbayan.pup.edu.ph as the initial PUP pilot domain.
@@ -57,15 +60,17 @@ FSD: FR-001 and FR-003.
 - [ ] Display the rules and privacy notice.
 - [ ] Explain CoR processing.
 - [ ] Explain anonymous-post authorship visibility.
-- [ ] Require explicit consent before registration.
+- [ ] Require explicit consent when completing registration after email ownership is proven.
 - [ ] Record consent and its timestamp.
 - [ ] Prevent registration without consent.
 - [ ] Display a successful registration message.
 - [ ] Instruct the user to verify their email.
 Acceptance criteria:
-- Valid institutional email and valid registration information create an unverified account.
+- A valid institutional email starts a time-limited verification request without creating a User or storing a password.
+- A valid emailed link alone does not create an account; submitting the completion form with valid information and consent creates a verified account and establishes its password.
 - Invalid institutional email is rejected.
-- Duplicate email is rejected.
+- Existing verified email addresses cannot create duplicate accounts.
+- A pending or expired verification request cannot establish a password; expired addresses can restart registration.
 - Weak passwords are rejected.
 - Missing consent prevents registration.
 4. Email verification
@@ -86,8 +91,8 @@ FSD: FR-001.
 - [ ] Configure local development email backend.
 - [ ] Test email generation and verification.
 Acceptance criteria:
-- New accounts are unverified by default.
-- Valid verification links activate verification.
+- No new account is created until a valid verification link is submitted with the account-completion form.
+- Valid verification links complete registration and activate the verified account.
 - Invalid or expired links cannot verify accounts.
 - Users cannot bypass verification by directly entering protected URLs.
 5. Login and logout
@@ -159,7 +164,7 @@ Full officer assignment and channel permissions are outside Sprint 1.
 - [ ] Test institutional email validation.
 - [ ] Test password requirements.
 - [ ] Test registration consent requirement.
-- [ ] Test unverified account creation.
+- [ ] Test that email verification is pending without creating a User or storing a password.
 - [ ] Test verification email generation.
 - [ ] Test valid verification token.
 - [ ] Test invalid verification token.
@@ -225,18 +230,17 @@ At the end of Sprint 1, demonstrate:
 1. Open Curator while logged out.
 2. Navigate to registration.
 3. Attempt registration with an invalid email.
-4. Register using a valid institutional email.
-5. Show the consent requirement.
-6. Show that the account is initially unverified.
-7. Open the verification email.
-8. Verify the account.
-9. Log in.
-10. Open the protected dashboard.
-11. Display the user's account information.
-12. Log out.
-13. Attempt to revisit the protected dashboard.
-14. Show that access is denied or redirected.
-15. Run the Django system check and tests.
+4. Request registration using a valid institutional email.
+5. Show that no account or password exists before email ownership is proven.
+6. Open the verification email; show that GET does not complete registration.
+7. Enter account information and consent, then submit to verify and create the account.
+8. Log in.
+9. Open the protected dashboard.
+10. Display the user's account information.
+11. Log out.
+12. Attempt to revisit the protected dashboard.
+13. Show that access is denied or redirected.
+14. Run the Django system check and tests.
 
 15. Instructions for GitHub Copilot
 Add the following instruction to .github/copilot-instructions.md if that file exists:
@@ -270,19 +274,25 @@ and tested.
 
 
 
-16. Git commands for the current branch
-git status
-git switch feature/accounts-authentication
-git fetch origin
-git merge origin/dev
+16. Git workflow examples
+Create a feature branch from the latest `dev` branch. Replace `<feature-branch>` with a descriptive branch name such as `feature/accounts-authentication`; the name shown is only an example.
 
+```powershell
+git status
+git fetch origin
+git switch dev
+git pull --ff-only origin dev
+git switch -c <feature-branch>
+```
 
 After implementation and testing:
-git add .
-git commit -m "feat(accounts): implement registration and email verification"
-git push -u origin feature/accounts-authentication
 
+```powershell
+git add <related-files>
+git commit -m "<type>(<area>): <summary>"
+git push -u origin <feature-branch>
+```
 
 Open a pull request with:
 - Base: dev
-- Compare: feature/accounts-authentication
+- Compare: `<feature-branch>`

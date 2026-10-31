@@ -18,4 +18,9 @@ urlpatterns = [
         views.verify_email,
         name="verify_email",
     ),
+    path(
+        "verify-registration/<int:registration_id>/<str:token>/",
+        views.complete_registration,
+        name="complete_registration",
+    ),
 ]

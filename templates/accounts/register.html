@@ -8,8 +8,9 @@
         <p class="eyebrow">Curator account</p>
         <h1>Create your account</h1>
         <p class="account-intro">
-            Register with your institutional email. You will need to verify it
-            before accessing protected Curator features.
+            Start with your institutional email. We will email you a secure link;
+            your account and password are created only after you verify that
+            email address.
         </p>
 
         <form method="post" class="account-form">
@@ -19,57 +20,18 @@
                     {{ form.non_field_errors }}
                 </div>
             {% endif %}
-
             {% for field in form %}
-                {% if field.name != "consent" %}
-                    <div class="form-field">
-                        {{ field.label_tag }}
-                        {{ field }}
-                        {% if field.name == "password1" %}
-                            <ul class="password-rules">
-                                <li>At least 8 characters</li>
-                                <li>At least one uppercase letter</li>
-                                <li>At least one lowercase letter</li>
-                                <li>At least one digit</li>
-                                <li>Special characters are permitted</li>
-                            </ul>
-                        {% endif %}
-                        {% if field.help_text %}
-                            <small>{{ field.help_text }}</small>
-                        {% endif %}
-                        {% if field.errors %}
-                            <div class="field-errors" role="alert">
-                                {{ field.errors }}
-                            </div>
-                        {% endif %}
-                    </div>
-                {% endif %}
+                <div class="form-field">
+                    {{ field.label_tag }}
+                    {{ field }}
+                    {% if field.errors %}
+                        <div class="field-errors" role="alert">
+                            {{ field.errors }}
+                        </div>
+                    {% endif %}
+                </div>
             {% endfor %}
-
-            <section class="privacy-notice" aria-labelledby="privacy-title">
-                <h2 id="privacy-title">Account Registration and Privacy Notice</h2>
-                <p>By creating a Curator account, you acknowledge that:</p>
-                <ol>
-                    <li><strong>Account Information:</strong> Your institutional email address and account information will be processed to create, authenticate, and manage your account.</li>
-                    <li><strong>Certificate of Registration (CoR):</strong> If you request to create or join a class server, your Certificate of Registration (CoR) will be processed to verify your enrollment and determine your eligibility for subject-channel access.</li>
-                    <li><strong>CoR Privacy and Retention:</strong> Your CoR will only be accessible to the authorized person responsible for verifying your enrollment. The uploaded file will be deleted after the verification decision has been made.</li>
-                    <li><strong>Authorship Accountability:</strong> If you choose to post anonymously, Curator will retain your actual identity internally to support accountability and moderation. Other users will see your assigned anonymous identifier rather than your identity.</li>
-                    <li><strong>Authorized Identity Disclosure:</strong> The President of your server may view the identity behind an anonymous post within their server when a reason is provided. An Admin may view that identity only for a server identified in an abuse-of-authority report. These actions will be logged, and the affected author will be notified.</li>
-                    <li><strong>Responsible Use:</strong> You are expected to use Curator responsibly and follow the rules established for your class server.</li>
-                </ol>
-            </section>
-
-            <div class="consent-field">
-                {{ form.consent }}
-                {{ form.consent.label_tag }}
-                {% if form.consent.errors %}
-                    <div class="field-errors" role="alert">
-                        {{ form.consent.errors }}
-                    </div>
-                {% endif %}
-            </div>
-
-            <button class="button" type="submit">Create account</button>
+            <button class="button" type="submit">Continue with email</button>
         </form>
     </div>
 </section>

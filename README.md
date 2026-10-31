@@ -41,10 +41,12 @@ Run the test suite with `python manage.py test`.
 ## Routes
 
 - `/` — Curator homepage (`core:home`)
-- `/accounts/register/` — account registration with institutional email and
-  required privacy consent; sends a verification link
-- `/accounts/verify/<user-id>/<token>/` — email verification confirmation;
-  verification requires a POST after opening the link
+- `/accounts/register/` — requests an institutional email verification link;
+  no account password is stored before email ownership is proven
+- `/accounts/verify-registration/<registration-id>/<token>/` — completes
+  registration with a password and required privacy consent; account creation
+  requires a POST, not merely opening the emailed link
+- `/accounts/verify/<user-id>/<token>/` — legacy account verification endpoint
 - `/accounts/login/` and `/accounts/logout/` — email sign-in and POST-only
   sign-out
 - `/accounts/dashboard/` — protected account dashboard for verified users
@@ -73,10 +75,14 @@ private value and set `DJANGO_DEBUG=False` outside local development.
 | `EMAIL_HOST_USER` | Empty | SMTP username |
 | `EMAIL_HOST_PASSWORD` | Empty | SMTP password; keep private and out of Git |
 | `EMAIL_USE_TLS` | `True` | Whether SMTP uses TLS |
+| `EMAIL_TIMEOUT` | `10` | Finite SMTP connection timeout in seconds |
 | `DEFAULT_FROM_EMAIL` | `Curator <noreply@localhost>` | Sender address for verification messages |
 
-Verification links expire after 24 hours and can be used once. User passwords
-are stored using Django's password hashing. Login sessions last 14 days.
+Registration links expire after 24 hours and can be used once. Opening a link
+does not create an account; the email owner sets the password and records
+consent on the linked form. Expired requests can be restarted without leaving
+an email address permanently reserved. User passwords are stored using
+Django's password hashing. Login sessions last 14 days.
 When `DJANGO_DEBUG=False`, Django redirects HTTP to HTTPS and enables secure
 session/CSRF cookies and HSTS; configure the deployment proxy and allowed hosts
 to preserve the original HTTPS scheme correctly.

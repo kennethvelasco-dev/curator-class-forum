@@ -1,5 +1,6 @@
 """Settings for the Curator class forum."""
 
+import math
 import os
 from pathlib import Path
 
@@ -37,6 +38,9 @@ EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True").lower() in {"true", "1", "yes"}
+EMAIL_TIMEOUT = float(os.getenv("EMAIL_TIMEOUT", "10"))
+if not math.isfinite(EMAIL_TIMEOUT) or EMAIL_TIMEOUT <= 0:
+    raise ValueError("EMAIL_TIMEOUT must be a finite positive number of seconds.")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Curator <noreply@localhost>")
 EMAIL_VERIFICATION_TOKEN_TTL = 24 * 60 * 60
 
