@@ -40,9 +40,10 @@ Run the test suite with `python manage.py test`.
 ## Routes
 
 - `/` — Curator homepage (`core:home`)
-- `/accounts/`, `/servers/`, `/channels/`, `/discussions/`,
-  `/announcements/`, and `/moderation/` — mounted app namespaces; endpoints are
-  not implemented yet
+- `/accounts/register/` — account registration with institutional email and
+  required privacy consent
+- `/servers/`, `/channels/`, `/discussions/`, `/announcements/`, and
+  `/moderation/` — mounted app namespaces; endpoints are not implemented yet
 - `/admin/` — Django administration
 
 These prefixes are registered for future feature routes; requests to them return
@@ -59,6 +60,7 @@ private value and set `DJANGO_DEBUG=False` outside local development.
 | `DJANGO_SECRET_KEY` | Local development-only key | Django secret key; required when debug is disabled |
 | `DJANGO_DEBUG` | `True` | Enables Django debug mode |
 | `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated allowed host names |
+| `INSTITUTIONAL_EMAIL_DOMAIN` | `iskolarngbayan.pup.edu.ph` | Institutional email domain allowed for account registration |
 
 ## Project layout
 

@@ -23,6 +23,11 @@ ALLOWED_HOSTS = [
     if host.strip()
 ]
 
+INSTITUTIONAL_EMAIL_DOMAIN = os.getenv(
+    "INSTITUTIONAL_EMAIL_DOMAIN",
+    "iskolarngbayan.pup.edu.ph",
+).strip().lower()
+
 
 # Application definition
 
@@ -90,6 +95,15 @@ DATABASES = {
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
+    {
+        "NAME": "apps.accounts.validators.UppercaseCharacterValidator",
+    },
+    {
+        "NAME": "apps.accounts.validators.LowercaseCharacterValidator",
+    },
+    {
+        "NAME": "apps.accounts.validators.DigitCharacterValidator",
+    },
     {
         "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
