@@ -1,6 +1,7 @@
 """Views for account pages and authentication."""
 
 from django.conf import settings
+from django.contrib.auth.views import LoginView, LogoutView
 from django.core.mail import send_mail
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -8,6 +9,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 
 from apps.accounts.forms import RegistrationForm
+from apps.accounts.forms import EmailAuthenticationForm
 from apps.accounts.models import User
 from apps.accounts.tokens import (
     consume_email_verification_token,
@@ -48,6 +50,14 @@ def register(request):
 
 def registration_complete(request):
     return render(request, "accounts/registration_complete.html")
+
+
+login_view = LoginView.as_view(
+    authentication_form=EmailAuthenticationForm,
+    template_name="accounts/login.html",
+    redirect_authenticated_user=True,
+)
+logout_view = LogoutView.as_view(next_page="accounts:login")
 
 
 @never_cache

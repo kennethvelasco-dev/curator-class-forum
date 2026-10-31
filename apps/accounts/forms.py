@@ -2,6 +2,7 @@
 
 from django import forms
 from django.conf import settings
+from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -95,3 +96,26 @@ class RegistrationForm(forms.Form):
             consent_at=timezone.now(),
             consent_version=CONSENT_NOTICE_VERSION,
         )
+
+
+class EmailAuthenticationForm(AuthenticationForm):
+    error_messages = {
+        **AuthenticationForm.error_messages,
+        "invalid_login": "Invalid email or password.",
+    }
+
+    username = forms.EmailField(
+        label="Institutional email",
+        widget=forms.EmailInput(attrs={"autofocus": True, "autocomplete": "email"}),
+    )
+
+    def clean_username(self):
+        return User.objects.normalize_email(self.cleaned_data["username"])
+
+    def confirm_login_allowed(self, user):
+        if not user.is_active or not user.is_email_verified:
+            raise ValidationError(
+                "Invalid email or password.",
+                code="invalid_login",
+            )
+        super().confirm_login_allowed(user)
