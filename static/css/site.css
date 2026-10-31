@@ -1,8 +1,8 @@
 :root {
-    color-scheme: light;
+    color-scheme: dark;
     font-family: "Segoe UI", sans-serif;
-    color: #18251f;
-    background: #f7f8f4;
+    color: #e8efe9;
+    background: #0f1713;
 }
 
 * {
@@ -19,7 +19,7 @@ body {
     align-items: baseline;
     gap: 0.75rem;
     padding: 1.5rem clamp(1.5rem, 8vw, 8rem);
-    border-bottom: 1px solid #e3e8e1;
+    border-bottom: 1px solid #293b31;
 }
 
 .brand {
@@ -31,18 +31,23 @@ body {
 
 .brand-caption,
 .eyebrow {
-    color: #52665b;
+    color: #a6b8ad;
 }
 
 .account-nav {
     margin-left: auto;
-    color: #245c43;
+    color: #8bc9a6;
     font-weight: 650;
     text-decoration: none;
 }
 
 .account-nav:hover {
     text-decoration: underline;
+}
+
+a:focus-visible {
+    outline: 3px solid #98d7b5;
+    outline-offset: 3px;
 }
 
 .hero {
@@ -67,7 +72,7 @@ h1 {
 
 .intro {
     max-width: 34rem;
-    color: #52665b;
+    color: #b4c6bb;
     font-size: 1.15rem;
     line-height: 1.7;
 }
@@ -109,6 +114,10 @@ h1 {
 .account-intro {
     color: #c2d0c8;
     line-height: 1.65;
+}
+
+.account-card a:not(.button) {
+    color: #98d7b5;
 }
 
 .account-form {

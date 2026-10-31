@@ -158,6 +158,7 @@ class RegistrationViewTests(TestCase):
         self.assertContains(response, "institutional email")
         self.assertNotContains(response, 'name="password1"')
         self.assertNotContains(response, 'name="consent"')
+        self.assertContains(response, 'href="/accounts/login/"')
         self.assertContains(response, "csrfmiddlewaretoken")
 
     def test_initial_registration_creates_no_user_or_password(self):

@@ -5,66 +5,69 @@ Sprint 1
 Sprint goal: Deliver a working account system with registration, institutional email verification, login, logout, and protected pages.
 
 FSD baseline: Curator FSD v1.0, particularly FR-001, FR-002, and FR-003.
+
+Checklist status: Checked items are supported by the current source, settings, documentation, or tests. Production settings are conditionally enabled, but deployment/proxy behavior remains unverified. Items requiring missing implementation, fresh-clone testing, manual demonstration, or teammate/repository workflow remain unchecked.
+
 1. Project foundation
-- [ ] Confirm Django project starts successfully.
-- [ ] Confirm project follows Django Model–Template–View architecture.
-- [ ] Verify requirements.txt contains all required dependencies.
-- [ ] Configure environment variables.
-- [ ] Ensure .env is excluded from Git.
-- [ ] Create or update .env.example with required variable names.
-- [ ] Verify database configuration.
-- [ ] Verify static files and templates configuration.
-- [ ] Confirm migrations are tracked in Git.
-- [ ] Update README with installation and setup instructions.
+- [x] Confirm Django project starts successfully.
+- [x] Confirm project follows Django Model–Template–View architecture.
+- [x] Verify requirements.txt contains all required dependencies.
+- [x] Configure environment variables.
+- [x] Ensure .env is excluded from Git.
+- [x] Create or update .env.example with required variable names.
+- [x] Verify database configuration.
+- [x] Verify static files and templates configuration.
+- [x] Confirm migrations are tracked in Git.
+- [x] Update README with installation and setup instructions.
 - [ ] Confirm another developer can clone and run the project.
 Acceptance criteria:
 - A fresh clone can install dependencies, configure the environment, migrate the database, and run the application.
 - python manage.py check completes without errors.
 2. Custom user model
 FSD attributes include email, password hash, full name, student number, active status, and creation date. Student number must not be required or collected during initial account registration. Collect it in the CoR join-request flow (UC-02); any User-model student-number field must remain optional until that workflow is implemented.
-- [ ] Inspect the existing apps/accounts implementation.
-- [ ] Confirm the custom User model is configured using AUTH_USER_MODEL.
-- [ ] Use institutional email as the login identifier.
-- [ ] Enforce unique email addresses.
-- [ ] Normalize email addresses.
-- [ ] Store the user's full name.
-- [ ] Do not require or collect student number during initial account registration.
+- [x] Inspect the existing apps/accounts implementation.
+- [x] Confirm the custom User model is configured using AUTH_USER_MODEL.
+- [x] Use institutional email as the login identifier.
+- [x] Enforce unique email addresses.
+- [x] Normalize email addresses.
+- [x] Store the user's full name.
+- [x] Do not require or collect student number during initial account registration.
 - [ ] Collect student number through the CoR join-request flow (UC-02), when implemented.
-- [ ] Use Django's built-in password hashing.
-- [ ] Support account active/inactive status.
-- [ ] Add account creation timestamp.
-- [ ] Add email-verification status.
-- [ ] Add appropriate model validation and constraints.
-- [ ] Generate and review required migrations.
+- [x] Use Django's built-in password hashing.
+- [x] Support account active/inactive status.
+- [x] Add account creation timestamp.
+- [x] Add email-verification status.
+- [x] Add appropriate model validation and constraints.
+- [x] Generate and review required migrations.
 Important: Do not replace the existing migration history unnecessarily. Inspect existing migrations before modifying the User model.
 3. Registration
 FSD: FR-001 and FR-003.
-- [ ] Create registration page.
-- [ ] Create registration form.
-- [ ] Collect required user information.
-- [ ] Collect only the institutional email before email ownership is proven; do not persist a password or create a User at this stage.
-- [ ] After a valid emailed link is submitted, collect full name, password, and explicit privacy consent to complete account creation.
-- [ ] Validate institutional email addresses.
-- [ ] Make the allowed email domain configurable.
-- [ ] Use iskolarngbayan.pup.edu.ph as the initial PUP pilot domain.
-- [ ] Reject invalid email addresses.
-- [ ] Reject duplicate email addresses.
-- [ ] Validate all fields on the server.
-- [ ] Validate password confirmation.
-- [ ] Enforce password requirements:
-  - [ ] At least 8 characters.
-  - [ ] At least one uppercase letter.
-  - [ ] At least one lowercase letter.
-  - [ ] At least one digit.
-  - [ ] Special characters permitted.
-- [ ] Display the rules and privacy notice.
-- [ ] Explain CoR processing.
-- [ ] Explain anonymous-post authorship visibility.
-- [ ] Require explicit consent when completing registration after email ownership is proven.
-- [ ] Record consent and its timestamp.
-- [ ] Prevent registration without consent.
-- [ ] Display a successful registration message.
-- [ ] Instruct the user to verify their email.
+- [x] Create registration page.
+- [x] Create registration form.
+- [x] Collect required user information.
+- [x] Collect only the institutional email before email ownership is proven; do not persist a password or create a User at this stage.
+- [x] After a valid emailed link is submitted, collect full name, password, and explicit privacy consent to complete account creation.
+- [x] Validate institutional email addresses.
+- [x] Make the allowed email domain configurable.
+- [x] Use iskolarngbayan.pup.edu.ph as the initial PUP pilot domain.
+- [x] Reject invalid email addresses.
+- [x] Reject duplicate email addresses.
+- [x] Validate all fields on the server.
+- [x] Validate password confirmation.
+- [x] Enforce password requirements:
+  - [x] At least 8 characters.
+  - [x] At least one uppercase letter.
+  - [x] At least one lowercase letter.
+  - [x] At least one digit.
+  - [x] Special characters permitted.
+- [x] Display the rules and privacy notice.
+- [x] Explain CoR processing.
+- [x] Explain anonymous-post authorship visibility.
+- [x] Require explicit consent when completing registration after email ownership is proven.
+- [x] Record consent and its timestamp.
+- [x] Prevent registration without consent.
+- [x] Display a successful registration message.
+- [x] Instruct the user to verify their email.
 Acceptance criteria:
 - A valid institutional email starts a time-limited verification request without creating a User or storing a password.
 - A valid emailed link alone does not create an account; submitting the completion form with valid information and consent creates a verified account and establishes its password.
@@ -75,21 +78,21 @@ Acceptance criteria:
 - Missing consent prevents registration.
 4. Email verification
 FSD: FR-001.
-- [ ] Generate secure verification tokens.
-- [ ] Implement token expiration.
-- [ ] Associate verification tokens with the correct account.
-- [ ] Configure email delivery through environment variables.
-- [ ] Implement verification email template.
-- [ ] Include verification link.
-- [ ] Implement verification endpoint.
-- [ ] Mark account as verified only after successful token validation.
-- [ ] Handle expired tokens.
-- [ ] Handle invalid tokens.
-- [ ] Handle previously used tokens.
-- [ ] Display verification success and failure pages.
-- [ ] Prevent unverified users from accessing authenticated pages.
-- [ ] Configure local development email backend.
-- [ ] Test email generation and verification.
+- [x] Generate secure verification tokens.
+- [x] Implement token expiration.
+- [x] Associate verification tokens with the correct account.
+- [x] Configure email delivery through environment variables.
+- [ ] Implement verification email template (the current verification message is assembled inline in the view).
+- [x] Include verification link.
+- [x] Implement verification endpoint.
+- [x] Mark account as verified only after successful token validation.
+- [x] Handle expired tokens.
+- [x] Handle invalid tokens.
+- [x] Handle previously used tokens.
+- [x] Display verification success and failure pages.
+- [x] Prevent unverified users from accessing authenticated pages.
+- [x] Configure local development email backend.
+- [x] Test email generation and verification.
 Acceptance criteria:
 - No new account is created until a valid verification link is submitted with the account-completion form.
 - Valid verification links complete registration and activate the verified account.
@@ -97,19 +100,19 @@ Acceptance criteria:
 - Users cannot bypass verification by directly entering protected URLs.
 5. Login and logout
 FSD: FR-002.
-- [ ] Create login page.
-- [ ] Authenticate using email and password.
-- [ ] Use Django's authentication framework.
-- [ ] Prevent unverified accounts from logging in.
-- [ ] Display appropriate login errors.
-- [ ] Establish authenticated sessions.
-- [ ] Redirect authenticated users to the dashboard.
-- [ ] Implement logout.
-- [ ] Invalidate sessions after logout.
-- [ ] Protect authenticated pages.
-- [ ] Redirect unauthenticated visitors to login.
-- [ ] Configure reasonable session expiry.
-- [ ] Use POST for logout.
+- [x] Create login page.
+- [x] Authenticate using email and password.
+- [x] Use Django's authentication framework.
+- [x] Prevent unverified accounts from logging in.
+- [x] Display appropriate login errors.
+- [x] Establish authenticated sessions.
+- [x] Redirect authenticated users to the dashboard.
+- [x] Implement logout.
+- [x] Invalidate sessions after logout.
+- [x] Protect authenticated pages.
+- [x] Redirect unauthenticated visitors to login.
+- [x] Configure reasonable session expiry.
+- [x] Use POST for logout.
 Acceptance criteria:
 - Verified users can log in.
 - Incorrect credentials are rejected.
@@ -117,65 +120,66 @@ Acceptance criteria:
 - Logged-out users cannot access protected pages.
 - Sessions behave correctly after restarting the server.
 6. Basic authenticated dashboard
-- [ ] Create a basic authenticated landing page.
-- [ ] Display the signed-in user's name.
-- [ ] Display the signed-in user's email.
-- [ ] Add a visible logout button.
-- [ ] Add navigation between login and registration.
-- [ ] Display appropriate messages for unauthenticated visitors.
-- [ ] Make the page responsive.
+- [x] Create a basic authenticated landing page.
+- [x] Display the signed-in user's name.
+- [x] Display the signed-in user's email.
+- [x] Add a visible logout button.
+- [x] Add navigation between login and registration.
+- [x] Display appropriate messages for unauthenticated visitors.
+- [x] Make the page responsive.
 Do not implement the full server/channel dashboard yet.
 7. Roles and authorization foundation
-- [ ] Separate authentication from authorization.
-- [ ] Establish a reusable permission-checking approach.
-- [ ] Use Django's staff/superuser functionality appropriately.
-- [ ] Keep future Student, Officer, President, and Admin permissions in mind.
-- [ ] Document how future server-specific membership roles will work.
-- [ ] Ensure the design supports a user belonging to multiple servers.
+- [x] Separate authentication from authorization.
+- [x] Establish a reusable permission-checking approach.
+- [x] Use Django's staff/superuser functionality appropriately.
+- [x] Keep future Student, Officer, President, and Admin permissions in mind.
+- [x] Document how future server-specific membership roles will work.
+- [ ] Ensure the design supports a user belonging to multiple servers (server-membership implementation is not present yet).
 Important architectural rule: Do not create one global President or Officer role on the User model. Those roles belong to a user's membership in a particular server.
 
 Full officer assignment and channel permissions are outside Sprint 1.
 8. Interface and usability
-- [ ] Registration page is usable on desktop and mobile.
-- [ ] Login page is usable on desktop and mobile.
-- [ ] Verification result pages are clear.
-- [ ] Forms have readable labels.
-- [ ] Validation messages are understandable.
-- [ ] Privacy and consent information is visible.
-- [ ] Forms are keyboard accessible.
-- [ ] Maintain readable color contrast.
-- [ ] Follow Curator's dark, minimalist design direction.
+- [x] Registration page is usable on desktop and mobile.
+- [x] Login page is usable on desktop and mobile.
+- [x] Verification result pages are clear.
+- [x] Forms have readable labels.
+- [x] Validation messages are understandable.
+- [x] Privacy and consent information is visible.
+- [x] Forms are keyboard accessible.
+- [x] Maintain readable color contrast.
+- [x] Follow Curator's dark, minimalist design direction.
 9. Security and privacy
-- [ ] Use Django password hashing.
-- [ ] Keep CSRF protection enabled.
-- [ ] Use Django ORM or parameterized queries.
-- [ ] Escape user-provided content in templates.
-- [ ] Validate input server-side.
-- [ ] Store secrets in environment variables.
-- [ ] Never commit .env.
-- [ ] Do not log passwords or verification tokens.
-- [ ] Configure secure cookies and HTTPS for production.
-- [ ] Minimize collection of personal information.
-- [ ] Record consent appropriately.
+- [x] Use Django password hashing.
+- [x] Keep CSRF protection enabled.
+- [x] Use Django ORM or parameterized queries.
+- [x] Escape user-provided content in templates.
+- [x] Validate input server-side.
+- [x] Store secrets in environment variables.
+- [x] Never commit .env.
+- [ ] Do not log passwords or verification tokens (the console backend is the default unless overridden and may expose token-bearing verification URLs in console output or application logs, including in production if misconfigured).
+- [x] Require a non-console email backend in production (`DJANGO_DEBUG=False`).
+- [x] Configure secure cookies and HTTPS for production (settings enable these when `DJANGO_DEBUG=False`; production proxy/deployment behavior still requires deployment verification).
+- [x] Minimize collection of personal information.
+- [x] Record consent appropriately.
 10. Automated tests
-- [ ] Test custom User creation.
-- [ ] Test email uniqueness.
-- [ ] Test email normalization.
-- [ ] Test institutional email validation.
-- [ ] Test password requirements.
-- [ ] Test registration consent requirement.
-- [ ] Test that email verification is pending without creating a User or storing a password.
-- [ ] Test verification email generation.
-- [ ] Test valid verification token.
-- [ ] Test invalid verification token.
-- [ ] Test expired verification token.
-- [ ] Test reused verification token.
-- [ ] Test unverified login rejection.
-- [ ] Test verified login success.
-- [ ] Test incorrect password rejection.
-- [ ] Test logout.
-- [ ] Test protected-page access.
-- [ ] Run the complete test suite.
+- [x] Test custom User creation.
+- [x] Test email uniqueness.
+- [x] Test email normalization.
+- [x] Test institutional email validation.
+- [x] Test password requirements.
+- [x] Test registration consent requirement.
+- [x] Test that email verification is pending without creating a User or storing a password.
+- [x] Test verification email generation.
+- [x] Test valid verification token.
+- [x] Test invalid verification token.
+- [x] Test expired verification token.
+- [x] Test reused verification token.
+- [x] Test unverified login rejection.
+- [x] Test verified login success.
+- [x] Test incorrect password rejection.
+- [x] Test logout.
+- [x] Test protected-page access.
+- [x] Run the complete test suite.
 11. Explicitly excluded from Sprint 1
 These features belong to later increments:
 Feature	FSD reference
@@ -212,16 +216,16 @@ Password reset, two-factor authentication, and social login are also excluded.
 14. Have the teammate review and test the integration.
 13. Definition of Done
 A feature is not complete merely because its page exists.
-- [ ] Matches the FSD.
-- [ ] Server-side validation works.
-- [ ] Automated tests are implemented.
-- [ ] python manage.py check passes.
-- [ ] python manage.py makemigrations --check --dry-run passes.
-- [ ] python manage.py test passes.
-- [ ] Migrations are reviewed and committed when necessary.
-- [ ] No secrets or temporary exports are committed.
+- [ ] Matches the FSD (full FSD compliance has not been independently verified).
+- [x] Server-side validation works.
+- [x] Automated tests are implemented.
+- [x] python manage.py check passes.
+- [x] python manage.py makemigrations --check --dry-run passes.
+- [x] python manage.py test passes.
+- [x] Migrations are reviewed and committed when necessary.
+- [x] No secrets or temporary exports are committed.
 - [ ] Manual testing is complete.
-- [ ] Code follows the existing project architecture.
+- [x] Code follows the existing project architecture.
 - [ ] Pull request includes implementation details and test results.
 - [ ] Another developer reviews the changes.
 - [ ] Changes are merged into dev, not directly into main.

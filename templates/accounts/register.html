@@ -33,6 +33,10 @@
             {% endfor %}
             <button class="button" type="submit">Continue with email</button>
         </form>
+
+        <p class="account-intro">
+            Already have an account? <a href="{% url 'accounts:login' %}">Sign in</a>.
+        </p>
     </div>
 </section>
 {% endblock %}
