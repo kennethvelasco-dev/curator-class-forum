@@ -139,8 +139,8 @@ json_get() {
     printf '%s' "$json" | sed -n -E 's/.*"'"$field"'"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)".*/\1/p' | head -1 \
         | sed -e 's/\\\\/@@GROK_ESCAPED_BACKSLASH@@/g' \
               -e 's/\\"/"/g' \
-              -e 's/\\n/'$'\n''/g' \
-              -e 's/\\t/'$'\t''/g' \
+              -e 's/\\n/\'$'\n''/g' \
+              -e 's/\\t/\'$'\t''/g' \
               -e 's/@@GROK_ESCAPED_BACKSLASH@@/\\/g'
 }
 
