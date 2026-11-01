@@ -4,7 +4,7 @@
 
 **Servers, CoR Verification & Membership**
 
--   **Sprint dates:** November 16--29, 2026
+-   **Sprint dates:** November 16–29, 2026
 -   **Final checkpoint:** November 29, 2026, 11:59 PM PHT
 -   **Planned effort:** 24 story points
 -   **Repository:** `kennethvelasco-dev/curator-class-forum`
