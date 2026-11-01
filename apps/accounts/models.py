@@ -80,9 +80,6 @@ class User(AbstractUser):
 
     def save(self, *args, **kwargs):
         self.email = UserManager.normalize_email(self.email)
-        self.full_name = (self.full_name or "").strip()
-        if not self.full_name:
-            raise ValueError("A full name is required.")
         super().save(*args, **kwargs)
 
     def get_full_name(self):
