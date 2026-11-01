@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="user",
             constraint=models.CheckConstraint(
-                condition=models.Q(full_name__regex=r"\\S"),
+                condition=models.Q(full_name__regex=r"\S"),
                 name="accounts_user_full_name_not_blank",
             ),
         ),
