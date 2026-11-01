@@ -26,7 +26,7 @@ Important constraints:
 
 - `email` is unique in the database layer.
 - A case-insensitive uniqueness constraint is enforced using `Lower(email)`.
-- `full_name` is required. `UserManager._create_user()` and `RegistrationForm` strip surrounding whitespace and reject blank values. `User.save()` normalizes the email address; direct model saves do not strip `full_name`.
+- `full_name` is required. `UserManager._create_user()` and `RegistrationForm` strip surrounding whitespace and reject blank values. The database check constraint rejects empty or whitespace-only values, including direct model saves; `User.save()` normalizes the email address but does not strip `full_name`. Legacy accounts without a usable first or last name are backfilled as `Unknown User`.
 - `username`, `first_name`, and `last_name` are intentionally removed from the custom user model to align with email-first authentication.
 
 | Field | Type | Null | Notes |
@@ -135,4 +135,4 @@ These entities should be implemented only when the relevant sprint requirements 
 
 ## Migration note
 
-The current Sprint 1 migration history includes the custom user migration, the user-attribute normalization migration, the verification-token migration, the case-insensitive email uniqueness migration, and the pending-registration migration. These migrations reflect the model state above and should remain stable unless a specific data-preservation issue requires a careful, reversible migration.
+The current Sprint 1 migration history includes the custom user migration, the user-attribute normalization migration, the verification-token migration, the case-insensitive email uniqueness migration, the pending-registration migration, and the full-name backfill/check-constraint migration. The full-name migration replaces empty or whitespace-only legacy names with `Unknown User` before enforcing the database constraint. These migrations reflect the model state above and should remain stable unless a specific data-preservation issue requires a careful migration.
