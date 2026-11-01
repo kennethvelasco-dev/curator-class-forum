@@ -4,8 +4,8 @@
 
 **Servers, CoR Verification & Membership**
 
--   **Sprint dates:** November 4--11, 2026
--   **Final checkpoint:** November 11, 2026, 11:59 PM PHT
+-   **Sprint dates:** November 16--29, 2026
+-   **Final checkpoint:** November 29, 2026, 11:59 PM PHT
 -   **Planned effort:** 24 story points
 -   **Repository:** `kennethvelasco-dev/curator-class-forum`
 -   **FSD baseline:** Curator FSD v1.0
@@ -47,48 +47,17 @@ privacy, deletion behavior, and automated tests must work.
 The following assignments were checked against the current GitHub
 issues.
 
-  --------------------------------------------------------------------------------------------------------------------------------------------
-  Issue                                                                        Task               Assignee                   Priority
-  ---------------------------------------------------------------------------- ------------------ -------------------------- -----------------
-  [#19](https://github.com/kennethvelasco-dev/curator-class-forum/issues/19)   Create Server,     Jamere (`jmrlvnth-bit`)    Critical
-                                                                               ServerRequest, and                            
-                                                                               Membership models                             
-
-  [#20](https://github.com/kennethvelasco-dev/curator-class-forum/issues/20)   Student server     **Kenneth                  High
-                                                                               creation request   (`kennethvelasco-dev`)**   
-                                                                               form with CoR                                 
-                                                                               upload                                        
-
-  [#21](https://github.com/kennethvelasco-dev/curator-class-forum/issues/21)   Student server     **Kenneth**                Critical
-                                                                               join request with                             
-                                                                               CoR and subject                               
-                                                                               confirmation                                  
-
-  [#22](https://github.com/kennethvelasco-dev/curator-class-forum/issues/22)   President          **Kenneth**                High
-                                                                               join-request                                  
-                                                                               review interface                              
-
-  [#23](https://github.com/kennethvelasco-dev/curator-class-forum/issues/23)   Immediate CoR      **Kenneth**                Critical
-                                                                               deletion after                                
-                                                                               approval or                                   
-                                                                               rejection                                     
-
-  [#24](https://github.com/kennethvelasco-dev/curator-class-forum/issues/24)   Multi-server       **Kenneth**                Medium
-                                                                               enrollment and                                
-                                                                               section-specific                              
-                                                                               access                                        
-
-  [#25](https://github.com/kennethvelasco-dev/curator-class-forum/issues/25)   President title    **Kenneth**                Medium
-                                                                               transfer                                      
-
-  [#26](https://github.com/kennethvelasco-dev/curator-class-forum/issues/26)   Automated tests    **Kenneth**                High
-                                                                               for Sprint 2                                  
-                                                                               workflows                                     
-
-  [#56](https://github.com/kennethvelasco-dev/curator-class-forum/issues/56)   Admin review       **Kenneth**                High
-                                                                               workflow for                                  
-                                                                               server requests                               
-  --------------------------------------------------------------------------------------------------------------------------------------------
+| Issue | Task | Assignee | Priority |
+| --- | --- | --- | --- |
+| [#19](https://github.com/kennethvelasco-dev/curator-class-forum/issues/19) | Create `Server`, `ServerRequest`, and `Membership` models | Jamere (`jmrlvnth-bit`) | Critical |
+| [#20](https://github.com/kennethvelasco-dev/curator-class-forum/issues/20) | Student server creation request form with CoR upload | Kenneth (`kennethvelasco-dev`) | High |
+| [#21](https://github.com/kennethvelasco-dev/curator-class-forum/issues/21) | Student server join request with CoR and subject confirmation | Kenneth (`kennethvelasco-dev`) | Critical |
+| [#22](https://github.com/kennethvelasco-dev/curator-class-forum/issues/22) | President join-request review interface | Kenneth (`kennethvelasco-dev`) | High |
+| [#23](https://github.com/kennethvelasco-dev/curator-class-forum/issues/23) | Immediate CoR deletion after approval or rejection | Kenneth (`kennethvelasco-dev`) | Critical |
+| [#24](https://github.com/kennethvelasco-dev/curator-class-forum/issues/24) | Multi-server enrollment and section-specific access | Kenneth (`kennethvelasco-dev`) | Medium |
+| [#25](https://github.com/kennethvelasco-dev/curator-class-forum/issues/25) | President title transfer | Kenneth (`kennethvelasco-dev`) | Medium |
+| [#26](https://github.com/kennethvelasco-dev/curator-class-forum/issues/26) | Automated tests for Sprint 2 workflows | Kenneth (`kennethvelasco-dev`) | High |
+| [#56](https://github.com/kennethvelasco-dev/curator-class-forum/issues/56) | Admin review workflow for server requests | Kenneth (`kennethvelasco-dev`) | High |
 
 ### Kenneth's responsibilities
 
