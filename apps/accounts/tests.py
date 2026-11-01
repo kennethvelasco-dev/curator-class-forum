@@ -798,3 +798,66 @@ class LegacyVerificationMigrationTests(TransactionTestCase):
         self.assertTrue(superuser.is_staff)
         self.assertTrue(superuser.is_superuser)
         self.assertFalse(pending_user.is_email_verified)
+
+
+class LegacyFullNameConstraintMigrationTests(TransactionTestCase):
+    migrate_from = ("accounts", "0001_initial")
+    migrate_to = ("accounts", "0006_user_full_name_not_blank")
+
+    def setUp(self):
+        super().setUp()
+        executor = MigrationExecutor(connection)
+        executor.migrate([self.migrate_from])
+        old_apps = executor.loader.project_state([self.migrate_from]).apps
+        HistoricalUser = old_apps.get_model("accounts", "User")
+
+        self.empty_name_user_id = HistoricalUser.objects.create(
+            username="legacy-empty-name",
+            email="legacy-empty@example.com",
+            first_name="",
+            last_name="",
+            password="!",
+        ).pk
+        self.whitespace_name_user_id = HistoricalUser.objects.create(
+            username="legacy-whitespace-name",
+            email="legacy-whitespace@example.com",
+            first_name="   ",
+            last_name="\t",
+            password="!",
+        ).pk
+
+        executor = MigrationExecutor(connection)
+        executor.migrate([self.migrate_to])
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+        super().tearDown()
+
+    def test_migration_backfills_legacy_users_without_usable_names(self):
+        migrated_apps = MigrationExecutor(connection).loader.project_state(
+            [self.migrate_to]
+        ).apps
+        MigratedUser = migrated_apps.get_model("accounts", "User")
+
+        empty_name_user = MigratedUser.objects.get(pk=self.empty_name_user_id)
+        whitespace_name_user = MigratedUser.objects.get(
+            pk=self.whitespace_name_user_id
+        )
+
+        self.assertEqual(empty_name_user.full_name, "Unknown User")
+        self.assertEqual(whitespace_name_user.full_name, "Unknown User")
+
+    def test_database_constraint_rejects_whitespace_only_full_names(self):
+        migrated_apps = MigrationExecutor(connection).loader.project_state(
+            [self.migrate_to]
+        ).apps
+        MigratedUser = migrated_apps.get_model("accounts", "User")
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                MigratedUser.objects.create(
+                    email="blank-name@example.com",
+                    full_name=" \t ",
+                    password="!",
+                )
