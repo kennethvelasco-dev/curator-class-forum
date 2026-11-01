@@ -26,7 +26,7 @@ Important constraints:
 
 - `email` is unique in the database layer.
 - A case-insensitive uniqueness constraint is enforced using `Lower(email)`.
-- `full_name` is required. `UserManager._create_user()` strips surrounding whitespace, and `RegistrationForm` uses `strip=True`; `User.save()` normalizes email only and does not strip `full_name` on direct model saves.
+- `full_name` is required. `UserManager._create_user()`, `RegistrationForm`, and `User.save()` strip surrounding whitespace and reject blank values. A database check constraint also rejects an empty string.
 - `username`, `first_name`, and `last_name` are intentionally removed from the custom user model to align with email-first authentication.
 
 | Field | Type | Null | Notes |
