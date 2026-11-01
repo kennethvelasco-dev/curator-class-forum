@@ -13,7 +13,7 @@ The Django app currently implements only the account foundation required for ins
 The project uses Django's custom authentication model:
 
 - Model: `apps.accounts.models.User`
-- Authentication backend: `AUTH_USER_MODEL = "accounts.User"`
+- User model setting: `AUTH_USER_MODEL = "accounts.User"`
 - Primary key: `id` (Django BigAutoField)
 - Login identifier: `email` (unique, normalized to lowercase)
 - Password: stored through Django's `set_password()` / password hashing pipeline
@@ -26,7 +26,7 @@ Important constraints:
 
 - `email` is unique in the database layer.
 - A case-insensitive uniqueness constraint is enforced using `Lower(email)`.
-- `full_name` is required and stripped before save.
+- `full_name` is required. `UserManager._create_user()` strips surrounding whitespace, and `RegistrationForm` uses `strip=True`; `User.save()` normalizes email only and does not strip `full_name` on direct model saves.
 - `username`, `first_name`, and `last_name` are intentionally removed from the custom user model to align with email-first authentication.
 
 | Field | Type | Null | Notes |
@@ -59,7 +59,7 @@ Constraints and lifecycle:
 
 - One active pending record per normalized email address is enforced by a case-insensitive unique constraint.
 - Tokens are stored as hashes, not raw values.
-- The record is removed when the registration is completed or invalidated.
+- `complete_registration()` deletes the pending row after successful account creation. Invalid or expired links return an error without deleting the row; an expired row is cleaned up when a later registration request for the same email finds it.
 - The model is intentionally limited to the registration flow and does not create a user row until verification succeeds.
 
 ### 3. Email verification token (`accounts_emailverificationtoken`)
