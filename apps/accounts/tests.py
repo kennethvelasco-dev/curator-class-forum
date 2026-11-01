@@ -319,7 +319,7 @@ class EmailVerificationTests(TestCase):
             response.context["verification_email"],
             f"ada@{REGISTRATION_DOMAIN}",
         )
-        self.assertEqual(response["Referrer-Policy"], "no-referrer")
+        self.assertEqual(response["Referrer-Policy"], "same-origin")
         self.assertContains(response, 'href="/accounts/login/"')
         self.assertContains(response, 'href="/accounts/register/"')
         self.assertEqual(User.objects.count(), 0)
@@ -798,3 +798,61 @@ class LegacyVerificationMigrationTests(TransactionTestCase):
         self.assertTrue(superuser.is_staff)
         self.assertTrue(superuser.is_superuser)
         self.assertFalse(pending_user.is_email_verified)
+
+
+@override_settings(
+    INSTITUTIONAL_EMAIL_DOMAIN=REGISTRATION_DOMAIN,
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+)
+class VerificationFormOriginTests(TestCase):
+    """Browsers send "Origin: null" on a form POST when the page's referrer
+    policy is "no-referrer". Django's CSRF check rejects that, so the pages
+    that contain verification forms must not use that policy."""
+
+    def setUp(self):
+        self.client.post(reverse("accounts:register"), registration_data())
+        self.path = emailed_path(mail.outbox[0])
+        self.csrf_client = Client(enforce_csrf_checks=True)
+
+    def csrf_token(self, response):
+        match = re.search(
+            r'name="csrfmiddlewaretoken" value="([^"]+)"',
+            response.content.decode(),
+        )
+        return match.group(1)
+
+    def test_form_pages_do_not_use_no_referrer_policy(self):
+        user = User.objects.create_user(
+            email="legacy@example.com",
+            password="StrongPass8",
+            full_name="Legacy User",
+        )
+        legacy_path = reverse(
+            "accounts:verify_email",
+            args=[user.pk, issue_email_verification_token(user)],
+        )
+
+        for path in (self.path, legacy_path):
+            response = self.client.get(path)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response["Referrer-Policy"], "same-origin")
+
+    def test_post_with_same_origin_header_passes_csrf_check(self):
+        page = self.csrf_client.get(self.path)
+        data = completion_data(csrfmiddlewaretoken=self.csrf_token(page))
+
+        response = self.csrf_client.post(
+            self.path, data, HTTP_ORIGIN="http://testserver"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(User.objects.filter(email=f"ada@{REGISTRATION_DOMAIN}").exists())
+
+    def test_post_with_null_origin_is_still_rejected(self):
+        page = self.csrf_client.get(self.path)
+        data = completion_data(csrfmiddlewaretoken=self.csrf_token(page))
+
+        response = self.csrf_client.post(self.path, data, HTTP_ORIGIN="null")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(User.objects.filter(email=f"ada@{REGISTRATION_DOMAIN}").exists())

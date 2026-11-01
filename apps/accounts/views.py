@@ -28,6 +28,13 @@ from apps.accounts.tokens import (
     issue_registration_token,
 )
 
+# Verification URLs carry a secret token, so these pages must not leak their URL
+# to other sites. "same-origin" does that (no Referer is sent cross-origin) but,
+# unlike "no-referrer", still lets the browser send the real Origin header on the
+# page's own form POST. With "no-referrer" browsers send "Origin: null" instead,
+# which Django's CSRF origin check correctly rejects.
+TOKEN_PAGE_REFERRER_POLICY = "same-origin"
+
 
 def register(request):
     if request.method == "POST":
@@ -187,7 +194,7 @@ def complete_registration(request, registration_id, token):
             "message": "Your email is verified and your account is ready. You can now sign in.",
         },
     )
-    response["Referrer-Policy"] = "no-referrer"
+    response["Referrer-Policy"] = TOKEN_PAGE_REFERRER_POLICY
     return response
 
 
@@ -202,7 +209,7 @@ def _render_registration_completion(request, pending, token, form):
             "token": token,
         },
     )
-    response["Referrer-Policy"] = "no-referrer"
+    response["Referrer-Policy"] = TOKEN_PAGE_REFERRER_POLICY
     return response
 
 
@@ -213,7 +220,7 @@ def _verification_failure(request, message):
         {"success": False, "message": message},
         status=400,
     )
-    response["Referrer-Policy"] = "no-referrer"
+    response["Referrer-Policy"] = TOKEN_PAGE_REFERRER_POLICY
     return response
 
 
@@ -244,7 +251,7 @@ def verify_email(request, user_id, token):
             },
             status=400,
         )
-        response["Referrer-Policy"] = "no-referrer"
+        response["Referrer-Policy"] = TOKEN_PAGE_REFERRER_POLICY
         return response
 
     if request.method == "POST":
@@ -257,7 +264,7 @@ def verify_email(request, user_id, token):
                     "message": "Your email address is verified. You can now sign in.",
                 },
             )
-            response["Referrer-Policy"] = "no-referrer"
+            response["Referrer-Policy"] = TOKEN_PAGE_REFERRER_POLICY
             return response
         message = "This verification link is invalid, expired, or has already been used."
         status = 400
@@ -280,5 +287,5 @@ def verify_email(request, user_id, token):
         },
         status=status,
     )
-    response["Referrer-Policy"] = "no-referrer"
+    response["Referrer-Policy"] = TOKEN_PAGE_REFERRER_POLICY
     return response
