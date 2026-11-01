@@ -87,12 +87,14 @@ class RegistrationFormTests(TestCase):
         with self.assertRaisesMessage(ValueError, "A full name is required."):
             user.save()
 
-    def test_database_rejects_empty_full_name(self):
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                User.objects.bulk_create(
-                    [User(email="ada@example.com", full_name="")]
-                )
+    def test_database_rejects_blank_full_name(self):
+        for blank_name in ("", "   ", "\\t\\n"):
+            with self.subTest(full_name=blank_name):
+                with self.assertRaises(IntegrityError):
+                    with transaction.atomic():
+                        User.objects.bulk_create(
+                            [User(email="ada@example.com", full_name=blank_name)]
+                        )
 
     def test_database_enforces_case_insensitive_email_uniqueness(self):
         with self.assertRaises(IntegrityError):
