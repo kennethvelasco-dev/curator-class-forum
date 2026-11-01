@@ -188,7 +188,7 @@ Rules:
 
 Recommended PowerShell workflow (human-operated examples; AI execution requires explicit authorization):
 
-All commands in the following examples are for the human operator. AI assistants may execute Git commands only when Kenneth explicitly authorizes the specific Git operation. The Sprint 2 checklist's restriction on branch changes, commits, pushes, merges, and other Git actions without permission remains in force.
+Read-only Git inspection commands required by Step 2 (for example, `git status`, `git branch --show-current`, `git log`, `git diff`, and `git show`) may be run by AI assistants without separate authorization. All commands in the following examples that change repository or branch state are for the human operator; AI assistants may execute mutating Git actions only when Kenneth explicitly authorizes the specific operation. This includes branch changes, staging, commits, pushes, merges, rebases, resets, stashes, cherry-picks, and branch deletion.
 
 ```powershell
 git status
