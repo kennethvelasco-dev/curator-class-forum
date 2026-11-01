@@ -822,7 +822,7 @@ class LegacyFullNameConstraintMigrationTests(TransactionTestCase):
             username="legacy-whitespace-name",
             email="legacy-whitespace@example.com",
             first_name="   ",
-            last_name="\\t",
+            last_name="\t",
             password="!",
         ).pk
 
@@ -858,6 +858,6 @@ class LegacyFullNameConstraintMigrationTests(TransactionTestCase):
             with transaction.atomic():
                 MigratedUser.objects.create(
                     email="blank-name@example.com",
-                    full_name=" \\t ",
+                    full_name=" \t ",
                     password="!",
                 )
