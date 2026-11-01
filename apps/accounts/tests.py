@@ -88,7 +88,7 @@ class RegistrationFormTests(TestCase):
             user.save()
 
     def test_database_rejects_blank_full_name(self):
-        for blank_name in ("", "   ", "\\t\\n"):
+        for blank_name in ("", "   ", "\t\n"):
             with self.subTest(full_name=blank_name):
                 with self.assertRaises(IntegrityError):
                     with transaction.atomic():
