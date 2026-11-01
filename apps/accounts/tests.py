@@ -66,6 +66,34 @@ class RegistrationFormTests(TestCase):
 
         self.assertEqual(user.email, "ada@example.com")
 
+    def test_direct_user_save_strips_full_name(self):
+        user = User(
+            email="ada@example.com",
+            full_name="  Ada Lovelace  ",
+        )
+        user.set_password("StrongPass8")
+
+        user.save()
+
+        self.assertEqual(user.full_name, "Ada Lovelace")
+
+    def test_direct_user_save_rejects_blank_full_name(self):
+        user = User(
+            email="ada@example.com",
+            full_name="   ",
+        )
+        user.set_password("StrongPass8")
+
+        with self.assertRaisesMessage(ValueError, "A full name is required."):
+            user.save()
+
+    def test_database_rejects_empty_full_name(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                User.objects.bulk_create(
+                    [User(email="ada@example.com", full_name="")]
+                )
+
     def test_database_enforces_case_insensitive_email_uniqueness(self):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
