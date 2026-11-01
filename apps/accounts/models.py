@@ -73,7 +73,7 @@ class User(AbstractUser):
                 name="accounts_user_email_ci_unique",
             ),
             models.CheckConstraint(
-                condition=~models.Q(full_name=""),
+                condition=models.Q(full_name__regex=r"\S"),
                 name="accounts_user_full_name_not_blank",
             ),
         ]
