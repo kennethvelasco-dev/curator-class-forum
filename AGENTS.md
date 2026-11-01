@@ -99,14 +99,14 @@ Both developers share integration testing, code review, defect fixing, and docum
 
 ### Later-sprint work
 
-Do not implement Sprint 3–5 features during Sprint 2 unless Kenneth explicitly asks for a bounded research/design task. Announcements and calendar belong to Sprint 4 (FR-032–FR-038). Prior planning or Claude groundwork for later issues is not authorization to implement or merge those features now. Preserve existing notes and avoid modifying unrelated scaffolds.
+Do not implement full Sprint 3–5 functionality during Sprint 2 unless Kenneth explicitly authorizes a bounded exception. Full Announcements and Calendar functionality belongs to Sprint 4 (FR-032–FR-038). For issue #56 only, creating the default channel records named Announcements, Calendar, and Rules is in scope as part of server initialization; this does not authorize implementing their Sprint 4 functionality or other Sprint 3–5 features. Prior planning or Claude groundwork for later issues is not authorization to implement or merge those features now. Preserve existing notes and avoid modifying unrelated scaffolds.
 
 ## 5. Mandatory workflow before editing
 
 For every task:
 
 1. **Confirm task:** Identify the GitHub issue number, assignee, sprint, priority, dependencies, FSD requirements, and acceptance criteria.
-2. **Inspect state:** Run `git status`, identify current branch, inspect relevant files, tests, migrations, and recent commits. Read `README.md`, this file, `.github/copilot-instructions.md`, `docs/FSD.pdf` (or its relevant extracted section), and the active sprint checklist.
+2. **Inspect state:** Run `git status`, identify current branch, inspect relevant files, tests, migrations, and recent commits. Read `README.md`, this file, `.github/copilot-instructions.md`, `docs/FSD.pdf` (or its relevant extracted section), and `Curator_Sprint_2_Feature_Checklist.md` as the single active sprint checklist.
 3. **Check shared work:** Inspect Jamere's branch/PR/model proposal before changing models, relationships, migration dependencies, or shared services.
 4. **Plan first:** Provide a concise plan listing files likely to change, data-model impact, authorization/security implications, tests, and risks. For database/security changes, wait for approval before implementation.
 5. **Limit scope:** Implement one issue or one coherent subtask at a time. Do not opportunistically refactor unrelated code.
@@ -186,7 +186,9 @@ Rules:
 - Do not merge Jamere's model branch or modify shared migrations without coordination.
 - Do not create duplicate PRs for an issue that already has an active PR.
 
-Recommended PowerShell workflow:
+Recommended PowerShell workflow (human-operated examples; AI execution requires explicit authorization):
+
+All commands in the following examples are for the human operator. AI assistants may execute Git commands only when Kenneth explicitly authorizes the specific Git operation. The Sprint 2 checklist's restriction on branch changes, commits, pushes, merges, and other Git actions without permission remains in force.
 
 ```powershell
 git status
