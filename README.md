@@ -57,6 +57,10 @@ Run the test suite with `python manage.py test`.
 Server, channel, discussion, announcement, and moderation routes are not
 implemented yet.
 
+## Database schema
+
+Sprint 1 database entities and cardinality are documented in [docs/database-schema.md](docs/database-schema.md). The document distinguishes implemented account models from future sprint models that are intentionally not yet created.
+
 ## Configuration
 
 Settings are loaded from environment variables, with values in a local `.env`
