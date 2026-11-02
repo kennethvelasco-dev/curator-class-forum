@@ -22,18 +22,47 @@ from apps.accounts.forms import (
 )
 from apps.accounts.models import PendingRegistration, User
 from apps.accounts.tokens import (
-    consume_email_verification_token,
+    consume_email_verification_token_hash,
+    email_verification_token_hash,
+    is_email_verification_token_hash_valid,
     is_email_verification_token_valid,
     issue_email_verification_token,
     issue_registration_token,
 )
 
-# Verification URLs carry a secret token, so these pages must not leak their URL
-# to other sites. "same-origin" does that (no Referer is sent cross-origin) but,
-# unlike "no-referrer", still lets the browser send the real Origin header on the
-# page's own form POST. With "no-referrer" browsers send "Origin: null" instead,
-# which Django's CSRF origin check correctly rejects.
-TOKEN_PAGE_REFERRER_POLICY = "same-origin"
+REGISTRATION_VERIFICATION_SESSION_KEY = "accounts.registration_verification"
+EMAIL_VERIFICATION_SESSION_KEY = "accounts.email_verification"
+# Form pages use tokenless URLs, so same-origin Referer headers cannot expose link tokens.
+CLEAN_FORM_REFERRER_POLICY = "same-origin"
+
+
+def _store_verification_state(request, session_key, object_id, token_hash):
+    request.session.cycle_key()
+    states = request.session.get(session_key, {})
+    if not isinstance(states, dict):
+        states = {}
+    states[str(object_id)] = token_hash
+    request.session[session_key] = states
+
+
+def _get_verification_state(request, session_key, object_id):
+    states = request.session.get(session_key, {})
+    if not isinstance(states, dict):
+        return None
+    token_hash = states.get(str(object_id))
+    return token_hash if isinstance(token_hash, str) else None
+
+
+def _clear_verification_state(request, session_key, object_id):
+    states = request.session.get(session_key, {})
+    if not isinstance(states, dict):
+        request.session.pop(session_key, None)
+        return
+    states.pop(str(object_id), None)
+    if states:
+        request.session[session_key] = states
+    else:
+        request.session.pop(session_key, None)
 
 
 def register(request):
@@ -112,7 +141,7 @@ def dashboard(request):
 
 
 @never_cache
-@require_http_methods(["GET", "POST"])
+@require_http_methods(["GET"])
 def complete_registration(request, registration_id, token):
     expires_at = timezone.now() - timedelta(
         seconds=settings.EMAIL_VERIFICATION_TOKEN_TTL
@@ -128,6 +157,53 @@ def complete_registration(request, registration_id, token):
             "This registration link is invalid or expired.",
         )
 
+    _store_verification_state(
+        request,
+        REGISTRATION_VERIFICATION_SESSION_KEY,
+        registration_id,
+        pending.token_hash,
+    )
+    response = redirect(
+        "accounts:complete_registration_form",
+        registration_id=registration_id,
+    )
+    response["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+@never_cache
+@require_http_methods(["GET", "POST"])
+def complete_registration_form(request, registration_id):
+    token_hash = _get_verification_state(
+        request,
+        REGISTRATION_VERIFICATION_SESSION_KEY,
+        registration_id,
+    )
+    if token_hash is None:
+        return _verification_failure(
+            request,
+            "This registration link is invalid or expired.",
+        )
+
+    expires_at = timezone.now() - timedelta(
+        seconds=settings.EMAIL_VERIFICATION_TOKEN_TTL
+    )
+    pending = PendingRegistration.objects.filter(
+        pk=registration_id,
+        token_hash=token_hash,
+        created_at__gte=expires_at,
+    ).first()
+    if pending is None:
+        _clear_verification_state(
+            request,
+            REGISTRATION_VERIFICATION_SESSION_KEY,
+            registration_id,
+        )
+        return _verification_failure(
+            request,
+            "This registration link is invalid or expired.",
+        )
+
     form = RegistrationForm(
         request.POST if request.method == "POST" else None,
         email=pending.email,
@@ -136,7 +212,6 @@ def complete_registration(request, registration_id, token):
         return _render_registration_completion(
             request,
             pending,
-            token,
             form,
         )
 
@@ -144,7 +219,6 @@ def complete_registration(request, registration_id, token):
         return _render_registration_completion(
             request,
             pending,
-            token,
             form,
         )
 
@@ -154,13 +228,18 @@ def complete_registration(request, registration_id, token):
                 PendingRegistration.objects.select_for_update()
                 .filter(
                     pk=registration_id,
-                    token_hash=hashlib.sha256(token.encode("utf-8")).hexdigest(),
+                    token_hash=token_hash,
                     created_at__gte=timezone.now()
                     - timedelta(seconds=settings.EMAIL_VERIFICATION_TOKEN_TTL),
                 )
                 .first()
             )
             if pending is None:
+                _clear_verification_state(
+                    request,
+                    REGISTRATION_VERIFICATION_SESSION_KEY,
+                    registration_id,
+                )
                 return _verification_failure(
                     request,
                     "This registration link is invalid, expired, or has already "
@@ -173,6 +252,11 @@ def complete_registration(request, registration_id, token):
                 .first()
             )
             if existing_user is not None and existing_user.is_email_verified:
+                _clear_verification_state(
+                    request,
+                    REGISTRATION_VERIFICATION_SESSION_KEY,
+                    registration_id,
+                )
                 return _verification_failure(
                     request,
                     "This registration link is invalid or has already been used.",
@@ -180,7 +264,17 @@ def complete_registration(request, registration_id, token):
 
             form.create_user(pending.email)
             pending.delete()
+            _clear_verification_state(
+                request,
+                REGISTRATION_VERIFICATION_SESSION_KEY,
+                registration_id,
+            )
     except IntegrityError:
+        _clear_verification_state(
+            request,
+            REGISTRATION_VERIFICATION_SESSION_KEY,
+            registration_id,
+        )
         return _verification_failure(
             request,
             "This registration link is invalid or has already been used.",
@@ -194,22 +288,20 @@ def complete_registration(request, registration_id, token):
             "message": "Your email is verified and your account is ready. You can now sign in.",
         },
     )
-    response["Referrer-Policy"] = TOKEN_PAGE_REFERRER_POLICY
+    response["Referrer-Policy"] = "no-referrer"
     return response
 
 
-def _render_registration_completion(request, pending, token, form):
+def _render_registration_completion(request, pending, form):
     response = render(
         request,
         "accounts/complete_registration.html",
         {
             "form": form,
             "verification_email": pending.email,
-            "registration_id": pending.pk,
-            "token": token,
         },
     )
-    response["Referrer-Policy"] = TOKEN_PAGE_REFERRER_POLICY
+    response["Referrer-Policy"] = CLEAN_FORM_REFERRER_POLICY
     return response
 
 
@@ -220,7 +312,7 @@ def _verification_failure(request, message):
         {"success": False, "message": message},
         status=400,
     )
-    response["Referrer-Policy"] = TOKEN_PAGE_REFERRER_POLICY
+    response["Referrer-Policy"] = "no-referrer"
     return response
 
 
@@ -233,7 +325,7 @@ logout_view = LogoutView.as_view(next_page="accounts:login")
 
 
 @never_cache
-@require_http_methods(["GET", "POST"])
+@require_http_methods(["GET"])
 def verify_email(request, user_id, token):
     user = User.objects.filter(pk=user_id).first()
     valid_token = (
@@ -251,11 +343,59 @@ def verify_email(request, user_id, token):
             },
             status=400,
         )
-        response["Referrer-Policy"] = TOKEN_PAGE_REFERRER_POLICY
+        response["Referrer-Policy"] = "no-referrer"
+        return response
+
+    _store_verification_state(
+        request,
+        EMAIL_VERIFICATION_SESSION_KEY,
+        user_id,
+        email_verification_token_hash(token),
+    )
+    response = redirect("accounts:verify_email_form", user_id=user_id)
+    response["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+@never_cache
+@require_http_methods(["GET", "POST"])
+def verify_email_form(request, user_id):
+    token_hash = _get_verification_state(
+        request,
+        EMAIL_VERIFICATION_SESSION_KEY,
+        user_id,
+    )
+    user = User.objects.filter(pk=user_id, is_email_verified=False).first()
+    valid_token = (
+        user is not None
+        and token_hash is not None
+        and is_email_verification_token_hash_valid(user_id, token_hash)
+    )
+    if not valid_token:
+        _clear_verification_state(
+            request,
+            EMAIL_VERIFICATION_SESSION_KEY,
+            user_id,
+        )
+        response = render(
+            request,
+            "accounts/verification_result.html",
+            {
+                "success": False,
+                "message": "This verification link is invalid or expired.",
+            },
+            status=400,
+        )
+        response["Referrer-Policy"] = "no-referrer"
         return response
 
     if request.method == "POST":
-        if consume_email_verification_token(user_id, token):
+        if consume_email_verification_token_hash(user_id, token_hash):
+            _clear_verification_state(
+                request,
+                EMAIL_VERIFICATION_SESSION_KEY,
+                user_id,
+            )
             response = render(
                 request,
                 "accounts/verification_result.html",
@@ -264,8 +404,13 @@ def verify_email(request, user_id, token):
                     "message": "Your email address is verified. You can now sign in.",
                 },
             )
-            response["Referrer-Policy"] = TOKEN_PAGE_REFERRER_POLICY
+            response["Referrer-Policy"] = "no-referrer"
             return response
+        _clear_verification_state(
+            request,
+            EMAIL_VERIFICATION_SESSION_KEY,
+            user_id,
+        )
         message = "This verification link is invalid, expired, or has already been used."
         status = 400
     else:
@@ -281,11 +426,10 @@ def verify_email(request, user_id, token):
         ),
         {
             "verification_email": user.email,
-            "token": token,
             "success": False,
             "message": message,
         },
         status=status,
     )
-    response["Referrer-Policy"] = TOKEN_PAGE_REFERRER_POLICY
+    response["Referrer-Policy"] = CLEAN_FORM_REFERRER_POLICY
     return response

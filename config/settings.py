@@ -2,9 +2,11 @@
 
 import math
 import os
+from copy import deepcopy
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
+from django.utils.log import DEFAULT_LOGGING
 from dotenv import load_dotenv
 
 
@@ -81,6 +83,15 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+LOGGING = deepcopy(DEFAULT_LOGGING)
+LOGGING["filters"]["redact_verification_tokens"] = {
+    "()": "apps.accounts.logging.RedactVerificationTokenFilter",
+}
+for handler_name in ("console", "mail_admins"):
+    LOGGING["handlers"][handler_name].setdefault("filters", []).append(
+        "redact_verification_tokens"
+    )
 
 ROOT_URLCONF = "config.urls"
 

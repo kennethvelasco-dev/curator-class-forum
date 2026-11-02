@@ -1,15 +1,26 @@
 import hashlib
+import io
+import logging
 import re
 import smtplib
+import socket
 from datetime import timedelta
+from importlib import import_module
 from unittest.mock import patch
 
 from django.conf import settings
 from django.core import mail
 from django.db import IntegrityError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
-from django.test import Client, TestCase, TransactionTestCase, override_settings
+from django.test import (
+    Client,
+    RequestFactory,
+    TestCase,
+    TransactionTestCase,
+    override_settings,
+)
 from django.urls import reverse
+from django.utils.log import AdminEmailHandler
 from django.utils import timezone
 
 from apps.accounts.forms import (
@@ -17,7 +28,8 @@ from apps.accounts.forms import (
     RegistrationEmailForm,
     RegistrationForm,
 )
-from apps.accounts.models import PendingRegistration, User
+from apps.accounts.logging import RedactVerificationTokenFilter
+from apps.accounts.models import EmailVerificationToken, PendingRegistration, User
 from apps.accounts.tokens import issue_email_verification_token
 
 
@@ -251,7 +263,9 @@ class RegistrationViewTests(TestCase):
         new_path = emailed_path(mail.outbox[1])
         self.assertRedirects(response, reverse("accounts:registration_complete"))
         self.assertEqual(self.client.get(old_path).status_code, 400)
-        self.assertEqual(self.client.get(new_path).status_code, 200)
+        new_link_response = self.client.get(new_path)
+        self.assertEqual(new_link_response.status_code, 302)
+        self.assertEqual(self.client.get(new_link_response.url).status_code, 200)
         self.assertEqual(PendingRegistration.objects.count(), 1)
         self.assertEqual(User.objects.count(), 0)
 
@@ -306,7 +320,12 @@ class RegistrationViewTests(TestCase):
 class EmailVerificationTests(TestCase):
     def create_verification(self):
         self.client.post(reverse("accounts:register"), registration_data())
-        return emailed_path(mail.outbox[0])
+        self.verification_link = emailed_path(mail.outbox[0])
+        response = self.client.get(self.verification_link)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Referrer-Policy"], "no-referrer")
+        self.assertNotIn(self.verification_link, response.url)
+        return response.url
 
     def test_get_displays_completion_form_without_creating_account(self):
         path = self.create_verification()
@@ -324,6 +343,7 @@ class EmailVerificationTests(TestCase):
         self.assertContains(response, 'href="/accounts/register/"')
         self.assertEqual(User.objects.count(), 0)
         self.assertEqual(PendingRegistration.objects.count(), 1)
+        self.assertNotContains(response, self.verification_link.rsplit("/", 2)[-2])
 
     def test_email_owner_sets_password_and_completes_registration(self):
         path = self.create_verification()
@@ -342,18 +362,23 @@ class EmailVerificationTests(TestCase):
 
     def test_verification_link_cannot_be_reused(self):
         path = self.create_verification()
-        self.client.post(path, completion_data())
+        first_response = self.client.post(path, completion_data())
 
         response = self.client.post(path, completion_data())
 
+        self.assertEqual(first_response.status_code, 200)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(User.objects.count(), 1)
+        self.assertNotIn(
+            "accounts.registration_verification",
+            self.client.session,
+        )
 
     def test_invalid_or_expired_link_cannot_establish_password(self):
         path = self.create_verification()
-        invalid_path = f"{path.rsplit('/', 2)[0]}/invalid-token/"
+        invalid_path = f"{self.verification_link.rsplit('/', 2)[0]}/invalid-token/"
 
-        invalid_response = self.client.post(invalid_path, completion_data())
+        invalid_response = self.client.get(invalid_path)
         PendingRegistration.objects.update(
             created_at=timezone.now() - timedelta(hours=25)
         )
@@ -362,6 +387,10 @@ class EmailVerificationTests(TestCase):
         self.assertEqual(invalid_response.status_code, 400)
         self.assertEqual(expired_response.status_code, 400)
         self.assertEqual(User.objects.count(), 0)
+        self.assertNotIn(
+            str(PendingRegistration.objects.get().pk),
+            self.client.session.get("accounts.registration_verification", {}),
+        )
 
     def test_unverified_email_cannot_login_or_access_dashboard(self):
         path = self.create_verification()
@@ -413,12 +442,18 @@ class EmailVerificationTests(TestCase):
         path = reverse("accounts:verify_email", args=[user.pk, token])
 
         response = self.client.get(path)
+        clean_path = reverse("accounts:verify_email_form", args=[user.pk])
+        clean_response = self.client.get(response.url)
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["verification_email"], user.email)
-        self.assertContains(response, user.email)
-        self.assertContains(response, 'href="/accounts/login/"')
-        self.assertContains(response, 'href="/accounts/register/"')
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, clean_path)
+        self.assertEqual(response["Referrer-Policy"], "no-referrer")
+        self.assertEqual(clean_response.status_code, 200)
+        self.assertEqual(clean_response["Referrer-Policy"], "same-origin")
+        self.assertEqual(clean_response.context["verification_email"], user.email)
+        self.assertContains(clean_response, user.email)
+        self.assertContains(clean_response, 'href="/accounts/login/"')
+        self.assertContains(clean_response, 'href="/accounts/register/"')
 
     def test_legacy_verification_requires_post_and_is_single_use(self):
         user = User.objects.create_user(
@@ -431,21 +466,55 @@ class EmailVerificationTests(TestCase):
 
         get_response = self.client.get(path)
         user.refresh_from_db()
-        self.assertEqual(get_response.status_code, 200)
+        self.assertEqual(get_response.status_code, 302)
         self.assertFalse(user.is_email_verified)
 
-        post_response = self.client.post(path)
+        post_response = self.client.post(get_response.url)
         user.refresh_from_db()
         self.assertEqual(post_response.status_code, 200)
         self.assertTrue(user.is_email_verified)
-        self.assertEqual(self.client.post(path).status_code, 400)
+        self.assertEqual(self.client.post(get_response.url).status_code, 400)
+
+    def test_legacy_invalid_and_expired_links_are_rejected(self):
+        user = User.objects.create_user(
+            email=f"ada@{REGISTRATION_DOMAIN}",
+            password="StrongPass8",
+            full_name="Ada Lovelace",
+        )
+        token = issue_email_verification_token(user)
+        path = reverse("accounts:verify_email", args=[user.pk, token])
+        invalid_path = reverse(
+            "accounts:verify_email",
+            args=[user.pk, "invalid-token"],
+        )
+
+        invalid_response = self.client.get(invalid_path)
+        entry_response = self.client.get(path)
+        EmailVerificationToken.objects.filter(user=user).update(
+            created_at=timezone.now()
+            - timedelta(seconds=settings.EMAIL_VERIFICATION_TOKEN_TTL + 1)
+        )
+        expired_response = self.client.get(entry_response.url)
+
+        self.assertEqual(invalid_response.status_code, 400)
+        self.assertEqual(entry_response.status_code, 302)
+        self.assertEqual(expired_response.status_code, 400)
+        user.refresh_from_db()
+        self.assertFalse(user.is_email_verified)
+        self.assertNotIn(
+            str(user.pk),
+            self.client.session.get("accounts.email_verification", {}),
+        )
 
     def test_csrf_protects_completion_post(self):
-        path = self.create_verification()
+        self.create_verification()
         csrf_client = Client(enforce_csrf_checks=True)
 
-        get_response = csrf_client.get(path)
-        post_response = csrf_client.post(path, completion_data())
+        get_response = csrf_client.get(self.verification_link, follow=True)
+        post_response = csrf_client.post(
+            get_response.request["PATH_INFO"],
+            completion_data(),
+        )
 
         self.assertEqual(get_response.status_code, 200)
         self.assertEqual(post_response.status_code, 403)
@@ -704,11 +773,14 @@ class AccountFlowIntegrationTests(TestCase):
         self.assertEqual(User.objects.count(), 0)
 
         path = emailed_path(mail.outbox[0])
-        get_response = self.client.get(path)
+        entry_response = self.client.get(path)
+        self.assertEqual(entry_response.status_code, 302)
+        clean_path = entry_response.url
+        get_response = self.client.get(clean_path)
         self.assertEqual(get_response.status_code, 200)
         self.assertEqual(User.objects.count(), 0)
 
-        completion_response = self.client.post(path, completion_data())
+        completion_response = self.client.post(clean_path, completion_data())
         user = User.objects.get(email=f"ada@{REGISTRATION_DOMAIN}")
         self.assertEqual(completion_response.status_code, 200)
         self.assertTrue(user.is_email_verified)
@@ -805,13 +877,11 @@ class LegacyVerificationMigrationTests(TransactionTestCase):
     EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
 )
 class VerificationFormOriginTests(TestCase):
-    """Browsers send "Origin: null" on a form POST when the page's referrer
-    policy is "no-referrer". Django's CSRF check rejects that, so the pages
-    that contain verification forms must not use that policy."""
+    """Verification forms post from clean URLs while CSRF checks remain enabled."""
 
     def setUp(self):
         self.client.post(reverse("accounts:register"), registration_data())
-        self.path = emailed_path(mail.outbox[0])
+        self.verification_link = emailed_path(mail.outbox[0])
         self.csrf_client = Client(enforce_csrf_checks=True)
 
     def csrf_token(self, response):
@@ -821,7 +891,7 @@ class VerificationFormOriginTests(TestCase):
         )
         return match.group(1)
 
-    def test_form_pages_do_not_use_no_referrer_policy(self):
+    def test_token_links_redirect_to_clean_form_urls(self):
         user = User.objects.create_user(
             email="legacy@example.com",
             password="StrongPass8",
@@ -832,27 +902,349 @@ class VerificationFormOriginTests(TestCase):
             args=[user.pk, issue_email_verification_token(user)],
         )
 
-        for path in (self.path, legacy_path):
-            response = self.client.get(path)
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response["Referrer-Policy"], "same-origin")
+        registration_response = self.client.get(self.verification_link)
+        legacy_response = self.client.get(legacy_path)
+
+        for response, token_path in (
+            (registration_response, self.verification_link),
+            (legacy_response, legacy_path),
+        ):
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response["Referrer-Policy"], "no-referrer")
+            self.assertNotIn(token_path, response.url)
+            clean_page = self.client.get(response.url)
+            self.assertEqual(clean_page.status_code, 200)
+            self.assertEqual(clean_page["Referrer-Policy"], "same-origin")
+            self.assertNotContains(clean_page, token_path.rsplit("/", 2)[-2])
+
+    def test_verification_entry_rotates_session_and_preserves_existing_data(self):
+        session = self.client.session
+        session["unrelated_session_value"] = "preserved"
+        session.save()
+        registration_session_key = session.session_key
+
+        registration_response = self.client.get(self.verification_link)
+        registration_session = self.client.session
+        registration_state = registration_session.get(
+            "accounts.registration_verification"
+        )
+
+        self.assertEqual(registration_response.status_code, 302)
+        self.assertNotEqual(registration_session.session_key, registration_session_key)
+        self.assertEqual(
+            registration_session["unrelated_session_value"],
+            "preserved",
+        )
+        session_store = import_module(settings.SESSION_ENGINE).SessionStore
+        self.assertFalse(session_store(session_key=registration_session_key).exists(
+            registration_session_key
+        ))
+        self.assertIn(str(PendingRegistration.objects.get().pk), registration_state)
+
+        legacy_user = User.objects.create_user(
+            email="legacy@example.com",
+            password="LegacyPass8",
+            full_name="Legacy User",
+        )
+        token_path = reverse(
+            "accounts:verify_email",
+            args=[legacy_user.pk, issue_email_verification_token(legacy_user)],
+        )
+        legacy_session_key = registration_session.session_key
+
+        legacy_response = self.client.get(token_path)
+        legacy_session = self.client.session
+
+        self.assertEqual(legacy_response.status_code, 302)
+        self.assertNotEqual(legacy_session.session_key, legacy_session_key)
+        self.assertEqual(legacy_session["unrelated_session_value"], "preserved")
+        self.assertIn(
+            str(legacy_user.pk),
+            legacy_session["accounts.email_verification"],
+        )
+
+    def test_multiple_registration_links_keep_independent_state(self):
+        second_email = f"grace@{REGISTRATION_DOMAIN}"
+        second_response = self.client.post(
+            reverse("accounts:register"),
+            registration_data(email=second_email),
+        )
+        self.assertRedirects(
+            second_response,
+            reverse("accounts:registration_complete"),
+        )
+        second_link = emailed_path(mail.outbox[1])
+
+        first_entry = self.client.get(self.verification_link)
+        first_clean_path = first_entry.url
+        second_entry = self.client.get(second_link)
+        second_clean_path = second_entry.url
+        session_state = self.client.session["accounts.registration_verification"]
+
+        self.assertEqual(first_entry.status_code, 302)
+        self.assertEqual(second_entry.status_code, 302)
+        first_registration_id = PendingRegistration.objects.get(
+            email=f"ada@{REGISTRATION_DOMAIN}"
+        ).pk
+        second_registration_id = PendingRegistration.objects.get(
+            email=second_email
+        ).pk
+        self.assertIn(str(first_registration_id), session_state)
+        self.assertIn(str(second_registration_id), session_state)
+        self.assertEqual(self.client.get(first_clean_path).status_code, 200)
+        self.assertEqual(self.client.get(second_clean_path).status_code, 200)
 
     def test_post_with_same_origin_header_passes_csrf_check(self):
-        page = self.csrf_client.get(self.path)
+        page = self.csrf_client.get(self.verification_link, follow=True)
         data = completion_data(csrfmiddlewaretoken=self.csrf_token(page))
 
         response = self.csrf_client.post(
-            self.path, data, HTTP_ORIGIN="http://testserver"
+            page.request["PATH_INFO"], data, HTTP_ORIGIN="http://testserver"
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(User.objects.filter(email=f"ada@{REGISTRATION_DOMAIN}").exists())
+        self.assertNotIn(
+            "accounts.registration_verification",
+            self.csrf_client.session,
+        )
 
-    def test_post_with_null_origin_is_still_rejected(self):
-        page = self.csrf_client.get(self.path)
+    def test_post_with_null_origin_is_rejected(self):
+        page = self.csrf_client.get(self.verification_link, follow=True)
         data = completion_data(csrfmiddlewaretoken=self.csrf_token(page))
 
-        response = self.csrf_client.post(self.path, data, HTTP_ORIGIN="null")
+        response = self.csrf_client.post(
+            page.request["PATH_INFO"],
+            data,
+            HTTP_ORIGIN="null",
+        )
 
         self.assertEqual(response.status_code, 403)
         self.assertFalse(User.objects.filter(email=f"ada@{REGISTRATION_DOMAIN}").exists())
+
+    def test_missing_and_invalid_csrf_tokens_are_rejected(self):
+        page = self.csrf_client.get(self.verification_link, follow=True)
+        token = self.csrf_token(page)
+        path = page.request["PATH_INFO"]
+
+        missing_response = self.csrf_client.post(
+            path,
+            completion_data(),
+            HTTP_ORIGIN="http://testserver",
+        )
+        invalid_response = self.csrf_client.post(
+            path,
+            completion_data(csrfmiddlewaretoken="invalid-csrf-token"),
+            HTTP_ORIGIN="http://testserver",
+        )
+        valid_token_response = self.csrf_client.post(
+            path,
+            completion_data(csrfmiddlewaretoken=token),
+            HTTP_ORIGIN="http://testserver",
+        )
+
+        self.assertEqual(missing_response.status_code, 403)
+        self.assertEqual(invalid_response.status_code, 403)
+        self.assertEqual(valid_token_response.status_code, 200)
+
+    def test_post_with_invalid_origin_is_rejected(self):
+        page = self.csrf_client.get(self.verification_link, follow=True)
+        data = completion_data(csrfmiddlewaretoken=self.csrf_token(page))
+
+        response = self.csrf_client.post(
+            page.request["PATH_INFO"],
+            data,
+            HTTP_ORIGIN="https://attacker.example",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(User.objects.filter(email=f"ada@{REGISTRATION_DOMAIN}").exists())
+
+    def test_email_verification_post_uses_clean_url_and_csrf(self):
+        user = User.objects.create_user(
+            email="legacy@example.com",
+            password="LegacyPass8",
+            full_name="Legacy User",
+        )
+        token = issue_email_verification_token(user)
+        token_path = reverse("accounts:verify_email", args=[user.pk, token])
+
+        page = self.csrf_client.get(token_path, follow=True)
+        response = self.csrf_client.post(
+            page.request["PATH_INFO"],
+            {"csrfmiddlewaretoken": self.csrf_token(page)},
+            HTTP_ORIGIN="http://testserver",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        user.refresh_from_db()
+        self.assertTrue(user.is_email_verified)
+        self.assertNotIn(
+            "accounts.email_verification",
+            self.csrf_client.session,
+        )
+
+    def test_legacy_missing_and_invalid_csrf_tokens_are_rejected(self):
+        user = User.objects.create_user(
+            email="legacy@example.com",
+            password="LegacyPass8",
+            full_name="Legacy User",
+        )
+        token_path = reverse(
+            "accounts:verify_email",
+            args=[user.pk, issue_email_verification_token(user)],
+        )
+        page = self.csrf_client.get(token_path, follow=True)
+        path = page.request["PATH_INFO"]
+
+        missing_response = self.csrf_client.post(
+            path,
+            {},
+            HTTP_ORIGIN="http://testserver",
+        )
+        invalid_response = self.csrf_client.post(
+            path,
+            {"csrfmiddlewaretoken": "invalid-csrf-token"},
+            HTTP_ORIGIN="http://testserver",
+        )
+        null_origin_response = self.csrf_client.post(
+            path,
+            {"csrfmiddlewaretoken": self.csrf_token(page)},
+            HTTP_ORIGIN="null",
+        )
+        untrusted_origin_response = self.csrf_client.post(
+            path,
+            {"csrfmiddlewaretoken": self.csrf_token(page)},
+            HTTP_ORIGIN="https://attacker.example",
+        )
+        user.refresh_from_db()
+
+        self.assertEqual(missing_response.status_code, 403)
+        self.assertEqual(invalid_response.status_code, 403)
+        self.assertEqual(null_origin_response.status_code, 403)
+        self.assertEqual(untrusted_origin_response.status_code, 403)
+        self.assertFalse(user.is_email_verified)
+
+    def test_legacy_failed_consumption_clears_state(self):
+        user = User.objects.create_user(
+            email="legacy@example.com",
+            password="LegacyPass8",
+            full_name="Legacy User",
+        )
+        token_path = reverse(
+            "accounts:verify_email",
+            args=[user.pk, issue_email_verification_token(user)],
+        )
+        page = self.csrf_client.get(token_path, follow=True)
+
+        with patch(
+            "apps.accounts.views.consume_email_verification_token_hash",
+            return_value=False,
+        ):
+            response = self.csrf_client.post(
+                page.request["PATH_INFO"],
+                {"csrfmiddlewaretoken": self.csrf_token(page)},
+                HTTP_ORIGIN="http://testserver",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertNotIn(
+            "accounts.email_verification",
+            self.csrf_client.session,
+        )
+
+    @override_settings(DEBUG=True)
+    def test_configured_console_handler_redacts_verification_tokens(self):
+        token = "sensitive-test-token"
+        path = f"/accounts/verify-registration/123/{token}/"
+        logger = logging.getLogger("django")
+        handler = next(
+            handler
+            for handler in logger.handlers
+            if any(
+                isinstance(filter_, RedactVerificationTokenFilter)
+                for filter_ in handler.filters
+            )
+        )
+        output = io.StringIO()
+        record = logger.makeRecord(
+            logger.name,
+            logging.INFO,
+            __file__,
+            1,
+            "GET %s HTTP/1.1",
+            (path,),
+            None,
+        )
+
+        with patch.object(handler, "stream", output):
+            logger.handle(record)
+
+        self.assertNotIn(token, output.getvalue())
+        self.assertIn("[redacted]", output.getvalue())
+
+    def test_development_server_handler_does_not_apply_request_filter(self):
+        token = "sensitive-test-token"
+        path = f"/accounts/verify-registration/123/{token}/"
+        logger = logging.getLogger("django.server")
+        handler = logger.handlers[0]
+        self.assertFalse(
+            any(
+                isinstance(filter_, RedactVerificationTokenFilter)
+                for filter_ in handler.filters
+            )
+        )
+        request = RequestFactory().get(path)
+        request.META["TEST_SOCKET"] = socket.socket()
+        output = io.StringIO()
+        record = logger.makeRecord(
+            logger.name,
+            logging.INFO,
+            __file__,
+            1,
+            '"GET %s HTTP/1.1" %s %s',
+            (path, 302, 0),
+            None,
+            extra={"request": request, "status_code": 302},
+        )
+
+        try:
+            with patch.object(handler, "stream", output):
+                logger.handle(record)
+        finally:
+            request.META["TEST_SOCKET"].close()
+
+        self.assertIn(token, output.getvalue())
+        self.assertEqual(request.path, path)
+
+    @override_settings(ADMINS=[("Admin", "admin@example.com")])
+    def test_verification_tokens_are_redacted_from_admin_error_reports(self):
+        token = "sensitive-test-token"
+        path = f"/accounts/verify-registration/123/{token}/"
+        request = RequestFactory().get(path)
+        record = logging.LogRecord(
+            "django.request",
+            logging.ERROR,
+            __file__,
+            1,
+            "Internal Server Error: %s",
+            (path,),
+            None,
+        )
+        record.request = request
+
+        self.assertTrue(RedactVerificationTokenFilter().filter(record))
+        self.assertIs(record.request._request, request)
+        self.assertEqual(request.path, path)
+        self.assertEqual(request.META["PATH_INFO"], path)
+        handler = AdminEmailHandler(include_html=True)
+        with patch.object(handler, "send_mail") as send_mail:
+            handler.emit(record)
+
+        message = send_mail.call_args.args[1]
+        html_message = send_mail.call_args.kwargs["html_message"]
+        self.assertNotIn(token, message)
+        self.assertNotIn(token, html_message)
+        self.assertIn("[redacted]", message)
+        self.assertIn("[redacted]", html_message)
+        self.assertIn("127.0.0.1", message)

@@ -14,9 +14,19 @@ urlpatterns = [
         name="registration_complete",
     ),
     path(
+        "verify/<int:user_id>/",
+        views.verify_email_form,
+        name="verify_email_form",
+    ),
+    path(
         "verify/<int:user_id>/<str:token>/",
         views.verify_email,
         name="verify_email",
+    ),
+    path(
+        "verify-registration/<int:registration_id>/",
+        views.complete_registration_form,
+        name="complete_registration_form",
     ),
     path(
         "verify-registration/<int:registration_id>/<str:token>/",

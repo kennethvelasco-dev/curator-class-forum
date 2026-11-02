@@ -15,15 +15,23 @@ def _token_digest(raw_token):
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 
 
-def _valid_tokens(raw_token):
+def email_verification_token_hash(raw_token):
+    return _token_digest(raw_token)
+
+
+def _valid_token_hashes(token_hash):
     expires_at = timezone.now() - timedelta(
         seconds=settings.EMAIL_VERIFICATION_TOKEN_TTL
     )
     return EmailVerificationToken.objects.filter(
-        token_hash=_token_digest(raw_token),
+        token_hash=token_hash,
         used_at__isnull=True,
         created_at__gte=expires_at,
     )
+
+
+def _valid_tokens(raw_token):
+    return _valid_token_hashes(_token_digest(raw_token))
 
 
 def issue_email_verification_token(user):
@@ -53,10 +61,21 @@ def is_email_verification_token_valid(user_id, raw_token):
     return _valid_tokens(raw_token).filter(user_id=user_id).exists()
 
 
-@transaction.atomic
+def is_email_verification_token_hash_valid(user_id, token_hash):
+    return _valid_token_hashes(token_hash).filter(user_id=user_id).exists()
+
+
 def consume_email_verification_token(user_id, raw_token):
+    return consume_email_verification_token_hash(
+        user_id,
+        _token_digest(raw_token),
+    )
+
+
+@transaction.atomic
+def consume_email_verification_token_hash(user_id, token_hash):
     verification = (
-        _valid_tokens(raw_token)
+        _valid_token_hashes(token_hash)
         .select_related("user")
         .select_for_update()
         .filter(user_id=user_id)

@@ -89,6 +89,13 @@ does not create an account; the email owner sets the password and records
 consent on the linked form. Expired requests can be restarted without leaving
 an email address permanently reserved. User passwords are stored using
 Django's password hashing. Login sessions last 14 days.
+The application redacts verification tokens from its configured Django
+console and admin-email logs. Django development-server access logs and
+external infrastructure logs may still record the original request URL;
+configure those logs separately if token-bearing paths must be excluded. The
+initial verification response uses a no-referrer policy, and subsequent forms
+use tokenless URLs.
+
 When `DJANGO_DEBUG=False`, Django redirects HTTP to HTTPS and enables secure
 session/CSRF cookies and HSTS; configure the deployment proxy and allowed hosts
 to preserve the original HTTPS scheme correctly.
