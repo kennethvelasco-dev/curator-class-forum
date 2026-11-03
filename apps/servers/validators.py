@@ -3,11 +3,11 @@
 from pathlib import Path
 
 from django.core.exceptions import ValidationError
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
 
 MAX_COR_FILE_SIZE = 6 * 1024 * 1024
-PDF_HEADER = b"%PDF-"
-PDF_HEADER_SEARCH_SIZE = 1024
 
 
 def validate_cor_file(uploaded_file):
@@ -27,12 +27,17 @@ def validate_cor_file(uploaded_file):
     original_position = uploaded_file.tell()
     try:
         uploaded_file.seek(0)
-        header = uploaded_file.read(PDF_HEADER_SEARCH_SIZE)
+        try:
+            reader = PdfReader(uploaded_file)
+            if reader.is_encrypted or not reader.pages:
+                raise ValidationError(
+                    "The uploaded file is not a valid PDF.",
+                    code="cor_file_invalid_pdf",
+                )
+        except (PdfReadError, KeyError, TypeError, ValueError) as error:
+            raise ValidationError(
+                "The uploaded file is not a valid PDF.",
+                code="cor_file_invalid_pdf",
+            ) from error
     finally:
         uploaded_file.seek(original_position)
-
-    if PDF_HEADER not in header:
-        raise ValidationError(
-            "The uploaded file is not a valid PDF.",
-            code="cor_file_invalid_pdf",
-        )

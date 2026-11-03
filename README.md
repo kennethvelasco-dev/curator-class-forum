@@ -92,18 +92,37 @@ settings. Startup rejects the console backend in production mode.
 CoR documents use a private filesystem storage root that cannot generate
 public URLs. In production (`DJANGO_DEBUG=False`), explicitly configure
 `PRIVATE_COR_STORAGE_ROOT`; it must point to a persistent directory outside
-the repository and every web-server-served directory, including media and
-static roots. Relative paths resolve against the project root. The default
-development path is a sibling directory outside the repository. On Linux,
-restrict access to the storage directory and files (for example, directory
-mode `0700` and file mode `0600`); use equivalent platform ACLs elsewhere.
-The application does not implement cross-platform permission enforcement.
-Upload validation accepts PDF files up to 6 MiB. The reusable
-`apps.servers.storage.delete_cor()` service confirms a file is absent before
-reporting success; on failure it raises `CorDeletionError`, leaves database
-references untouched, and can be retried with the same stored filename.
-Request-decision workflows and durable cleanup retries require the Sprint 2
-request models and are not implemented by this storage foundation.
+the repository and every web-server document root, served directory, and
+public alias. Do not configure Nginx, Apache, a CDN, or another web server to
+serve or alias this directory. Relative paths resolve against the project
+root. The default development path is a sibling directory outside the
+repository.
+
+The storage backend requests directory mode `0700` and file mode `0600` when
+Django creates new directories and files. On Linux/POSIX deployments, the
+private root should have permissions equivalent to `0700` and stored files
+permissions equivalent to `0600`. These creation modes do not secure a root
+directory that already exists; check and secure existing directories during
+deployment. The application does not recursively change permissions.
+
+On Windows, apply restrictive Windows ACLs so only the application identity
+and explicitly authorized system administrators can access the storage
+directory. POSIX permission bits do not enforce Windows ACLs. The application
+does not provide complete cross-platform permission or ACL enforcement.
+
+Upload validation accepts `.pdf` files up to 6 MiB and uses pypdf to parse the
+PDF structure. Filenames stored by the backend use random UUIDs rather than
+the uploaded filename. Structural parsing is not malware detection or a
+guarantee that a document is safe to open.
+
+The reusable `apps.servers.storage.delete_cor()` service returns
+`ALREADY_ABSENT` only when absence is confirmed. An inaccessible path,
+filesystem error, or ambiguous state raises `CorDeletionError`; the exception
+is chained for diagnostics while log messages omit the filename and underlying
+exception text. The service leaves database references untouched, so callers
+can retain the stored name and retry. Durable cleanup retries and
+request-decision workflows require the Sprint 2 request models and are not
+implemented by this storage foundation.
 
 Registration links expire after 24 hours and can be used once. Opening a link
 does not create an account; the email owner sets the password and records

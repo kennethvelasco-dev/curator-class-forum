@@ -1,11 +1,13 @@
 """Private storage and deletion services for CoR documents."""
 
 import logging
+import os
+import uuid
 from enum import Enum
 from pathlib import Path
 
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, SuspiciousFileOperation
 from django.core.files.storage import FileSystemStorage
 
 
@@ -22,9 +24,21 @@ class CorDeletionResult(Enum):
 
 
 def _paths_overlap(first, second):
-    first = Path(first).resolve()
-    second = Path(second).resolve()
-    return first == second or first in second.parents or second in first.parents
+    first = os.path.normcase(os.path.normpath(str(Path(first).resolve())))
+    second = os.path.normcase(os.path.normpath(str(Path(second).resolve())))
+    try:
+        common_path = os.path.commonpath((first, second))
+    except ValueError:
+        return False
+    return common_path == first or common_path == second
+
+
+def _filesystem_path_exists(storage, name):
+    try:
+        os.lstat(storage.path(name))
+    except FileNotFoundError:
+        return False
+    return True
 
 
 class PrivateCorStorage(FileSystemStorage):
@@ -33,6 +47,8 @@ class PrivateCorStorage(FileSystemStorage):
     def __init__(self, location=None, **kwargs):
         location = location or settings.PRIVATE_COR_STORAGE_ROOT
         location = Path(location).resolve()
+        kwargs["directory_permissions_mode"] = 0o700
+        kwargs["file_permissions_mode"] = 0o600
 
         public_roots = [("BASE_DIR", settings.BASE_DIR)]
         for setting_name in ("MEDIA_ROOT", "STATIC_ROOT"):
@@ -53,6 +69,19 @@ class PrivateCorStorage(FileSystemStorage):
 
         kwargs["base_url"] = ""
         super().__init__(location=location, **kwargs)
+
+    def get_available_name(self, name, max_length=None):
+        extension = Path(name).suffix
+        unique_name = f"{uuid.uuid4().hex}{extension}"
+        if max_length is not None and len(unique_name) > max_length:
+            raise SuspiciousFileOperation(
+                "Storage cannot create a UUID filename within the configured "
+                "maximum length."
+            )
+        return unique_name
+
+    def exists(self, name):
+        return _filesystem_path_exists(self, name)
 
     def url(self, name):
         raise ValueError("Private CoR files do not have public URLs.")
@@ -77,14 +106,20 @@ def delete_cor(file_name, *, storage=None):
 
     operation = "checking file existence"
     try:
-        if not storage.exists(file_name):
+        if not _storage_file_exists(storage, file_name):
             return CorDeletionResult.ALREADY_ABSENT
 
         operation = "deleting the file"
-        storage.delete(file_name)
+        try:
+            storage.delete(file_name)
+        except FileNotFoundError:
+            operation = "verifying file absence"
+            if not _storage_file_exists(storage, file_name):
+                return CorDeletionResult.ALREADY_ABSENT
+            raise
 
         operation = "verifying file absence"
-        if storage.exists(file_name):
+        if _storage_file_exists(storage, file_name):
             raise OSError("Storage still reports the file as present.")
     except Exception as error:
         logger.error(
@@ -96,6 +131,12 @@ def delete_cor(file_name, *, storage=None):
         raise CorDeletionError(
             "CoR cleanup could not be verified; retain the file reference "
             "and retry."
-        ) from None
+        ) from error
 
     return CorDeletionResult.DELETED
+
+
+def _storage_file_exists(storage, name):
+    if isinstance(storage, FileSystemStorage):
+        return _filesystem_path_exists(storage, name)
+    return storage.exists(name)
