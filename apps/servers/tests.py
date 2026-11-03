@@ -6,17 +6,21 @@ import tempfile
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.files.storage import FileSystemStorage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
 from pypdf import PdfWriter
+from pypdf.errors import LimitReachedError
 
 from apps.servers.storage import (
     CorDeletionError,
     CorDeletionResult,
     PrivateCorStorage,
+    _filesystem_is_case_sensitive,
+    _paths_overlap,
     delete_cor,
     get_cor_storage,
 )
@@ -77,6 +81,20 @@ class CorFileValidationTests(SimpleTestCase):
         with self.assertRaisesMessage(ValidationError, "valid PDF"):
             validate_cor_file(uploaded_file)
 
+    def test_rejects_non_pdf_with_signature_after_non_whitespace_prefix(self):
+        uploaded_file = make_upload(content=b"not a PDF %PDF-1.7")
+
+        with self.assertRaisesMessage(ValidationError, "valid PDF"):
+            validate_cor_file(uploaded_file)
+
+    def test_rejects_pdf_with_altered_header_and_intact_structure(self):
+        uploaded_file = make_upload(
+            content=VALID_PDF.replace(b"%PDF-", b"#PDF-", 1)
+        )
+
+        with self.assertRaisesMessage(ValidationError, "valid PDF"):
+            validate_cor_file(uploaded_file)
+
     def test_rejects_pdf_header_without_a_valid_structure(self):
         uploaded_file = make_upload(content=b"%PDF-1.7\nnot a PDF")
 
@@ -88,8 +106,39 @@ class CorFileValidationTests(SimpleTestCase):
 
         validate_cor_file(uploaded_file)
 
+    def test_accepts_supported_pdf_header_versions(self):
+        for version in (b"1.0", b"1.7", b"2.0"):
+            with self.subTest(version=version):
+                content = VALID_PDF.replace(b"%PDF-1.3", b"%PDF-" + version, 1)
+                validate_cor_file(make_upload(content=content))
+
+    def test_rejects_malformed_pdf_version(self):
+        uploaded_file = make_upload(
+            content=VALID_PDF.replace(b"%PDF-1.3", b"%PDF-xyz", 1)
+        )
+
+        with self.assertRaisesMessage(ValidationError, "valid PDF"):
+            validate_cor_file(uploaded_file)
+
+    def test_rejects_pdf_version_outside_supported_syntax(self):
+        uploaded_file = make_upload(
+            content=VALID_PDF.replace(b"%PDF-1.3", b"%PDF-1.8", 1)
+        )
+
+        with self.assertRaisesMessage(ValidationError, "valid PDF"):
+            validate_cor_file(uploaded_file)
+
     def test_restores_original_position_after_pdf_parse_failure(self):
         uploaded_file = make_upload(content=b"%PDF-1.7\nnot a PDF")
+        uploaded_file.seek(4)
+
+        with self.assertRaises(ValidationError):
+            validate_cor_file(uploaded_file)
+
+        self.assertEqual(uploaded_file.tell(), 4)
+
+    def test_restores_original_position_after_invalid_header(self):
+        uploaded_file = make_upload(content=b"not a PDF %PDF-1.7")
         uploaded_file.seek(4)
 
         with self.assertRaises(ValidationError):
@@ -104,6 +153,35 @@ class CorFileValidationTests(SimpleTestCase):
         validate_cor_file(uploaded_file)
 
         self.assertEqual(uploaded_file.tell(), 4)
+
+    def test_parser_limit_error_becomes_chained_validation_error(self):
+        uploaded_file = make_upload()
+        parser_error = LimitReachedError("test parser limit")
+
+        with patch(
+            "apps.servers.validators.PdfReader",
+            side_effect=parser_error,
+        ):
+            with self.assertRaises(ValidationError) as raised:
+                validate_cor_file(uploaded_file)
+
+        self.assertIs(raised.exception.__cause__, parser_error)
+        self.assertEqual(uploaded_file.tell(), 0)
+
+    def test_unrelated_parser_error_propagates(self):
+        uploaded_file = make_upload()
+
+        with patch(
+            "apps.servers.validators.PdfReader",
+            side_effect=RuntimeError("unexpected parser failure"),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "unexpected parser failure",
+            ):
+                validate_cor_file(uploaded_file)
+
+        self.assertEqual(uploaded_file.tell(), 0)
 
 
 class PrivateCorStorageTests(SimpleTestCase):
@@ -262,10 +340,13 @@ class PrivateCorStorageTests(SimpleTestCase):
                 with self.assertRaises(ImproperlyConfigured):
                     PrivateCorStorage()
 
-    @unittest.skipUnless(os.name == "nt", "Windows path comparison behavior")
-    def test_storage_rejects_case_variant_project_root_on_windows(self):
+    def test_case_variant_project_root_obeys_filesystem_case_behavior(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             project_root = Path(temporary_directory) / "Project"
+            project_root.mkdir()
+            case_sensitive = _filesystem_is_case_sensitive(
+                Path(temporary_directory)
+            )
             with override_settings(
                 BASE_DIR=project_root,
                 PRIVATE_COR_STORAGE_ROOT=Path(str(project_root).swapcase()),
@@ -273,8 +354,114 @@ class PrivateCorStorageTests(SimpleTestCase):
                 STATIC_ROOT="",
                 STATICFILES_DIRS=[],
             ):
+                if case_sensitive:
+                    storage = PrivateCorStorage()
+                    self.assertEqual(
+                        Path(storage.location),
+                        Path(str(project_root).swapcase()).resolve(),
+                    )
+                else:
+                    with self.assertRaises(ImproperlyConfigured):
+                        PrivateCorStorage()
+
+    def test_case_variant_sibling_root_obeys_filesystem_case_behavior(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            project_root = Path(temporary_directory) / "Project"
+            private_root = Path(temporary_directory) / "project" / "private"
+            project_root.mkdir()
+            case_sensitive = _filesystem_is_case_sensitive(
+                Path(temporary_directory)
+            )
+            with override_settings(
+                BASE_DIR=project_root,
+                PRIVATE_COR_STORAGE_ROOT=private_root,
+                MEDIA_ROOT="",
+                STATIC_ROOT="",
+                STATICFILES_DIRS=[],
+            ):
+                if case_sensitive:
+                    storage = PrivateCorStorage()
+                    self.assertEqual(
+                        Path(storage.location),
+                        private_root.resolve(),
+                    )
+                else:
+                    with self.assertRaises(ImproperlyConfigured):
+                        PrivateCorStorage()
+
+    def test_case_sensitivity_probe_uses_nearest_existing_ancestor(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            nonexistent = root / "not-created" / "private"
+
+            self.assertFalse(nonexistent.exists())
+            self.assertEqual(
+                _filesystem_is_case_sensitive(nonexistent),
+                _filesystem_is_case_sensitive(root),
+            )
+
+    def test_case_sensitivity_probe_failure_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            first = Path(temporary_directory) / "Project"
+            second = Path(temporary_directory) / "project"
+            with patch(
+                "apps.servers.storage._filesystem_is_case_sensitive",
+                side_effect=OSError("probe failed"),
+            ):
                 with self.assertRaises(ImproperlyConfigured):
-                    PrivateCorStorage()
+                    _paths_overlap(first, second)
+
+    def test_case_sensitivity_probe_detects_dangling_symlink_alias(self):
+        class FakeEntry:
+            name = "danglingLink"
+            path = "root/danglingLink"
+
+        class FakeStat:
+            st_dev = 1
+            st_ino = 123
+
+        scan_result = MagicMock()
+        scan_result.__enter__.return_value = [FakeEntry()]
+        with patch(
+            "apps.servers.storage.os.scandir",
+            return_value=scan_result,
+        ), patch(
+            "apps.servers.storage.Path.stat",
+            return_value=type("DirectoryStat", (), {"st_mode": stat.S_IFDIR})(),
+        ), patch(
+            "apps.servers.storage.os.lstat",
+            side_effect=[FakeStat(), FakeStat()],
+        ) as lstat, patch(
+            "apps.servers.storage.os.stat",
+            side_effect=FileNotFoundError,
+        ) as stat_call:
+            self.assertFalse(_filesystem_is_case_sensitive(Path("root")))
+
+        self.assertEqual(lstat.call_count, 2)
+        stat_call.assert_not_called()
+
+    def test_case_sensitivity_probe_distinguishes_case_sensitive_alias(self):
+        class FakeEntry:
+            name = "example"
+            path = "root/example"
+
+        class FakeStat:
+            st_dev = 1
+            st_ino = 123
+
+        scan_result = MagicMock()
+        scan_result.__enter__.return_value = [FakeEntry()]
+        with patch(
+            "apps.servers.storage.os.scandir",
+            return_value=scan_result,
+        ), patch(
+            "apps.servers.storage.Path.stat",
+            return_value=type("DirectoryStat", (), {"st_mode": stat.S_IFDIR})(),
+        ), patch(
+            "apps.servers.storage.os.lstat",
+            side_effect=[FileNotFoundError, FakeStat()],
+        ):
+            self.assertTrue(_filesystem_is_case_sensitive(Path("root")))
 
 
 class CorDeletionTests(SimpleTestCase):

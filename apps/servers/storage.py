@@ -2,6 +2,8 @@
 
 import logging
 import os
+import stat
+import tempfile
 import uuid
 from enum import Enum
 from pathlib import Path
@@ -24,13 +26,92 @@ class CorDeletionResult(Enum):
 
 
 def _paths_overlap(first, second):
-    first = os.path.normcase(os.path.normpath(str(Path(first).resolve())))
-    second = os.path.normcase(os.path.normpath(str(Path(second).resolve())))
-    try:
-        common_path = os.path.commonpath((first, second))
-    except ValueError:
+    first = Path(first).resolve(strict=False)
+    second = Path(second).resolve(strict=False)
+    if os.name == "nt":
+        if os.path.normcase(first.anchor) != os.path.normcase(second.anchor):
+            return False
+    elif first.anchor != second.anchor:
         return False
-    return common_path == first or common_path == second
+
+    first_parts = first.parts[1:]
+    second_parts = second.parts[1:]
+    common_length = min(len(first_parts), len(second_parts))
+    for index in range(common_length):
+        first_part = first_parts[index]
+        second_part = second_parts[index]
+        if first_part == second_part:
+            continue
+        if first_part.casefold() != second_part.casefold():
+            return False
+
+        parent = Path(first.anchor).joinpath(*first_parts[:index])
+        try:
+            case_sensitive = _filesystem_is_case_sensitive(parent)
+        except OSError as error:
+            raise ImproperlyConfigured(
+                "Unable to determine filesystem case sensitivity for private "
+                "CoR storage path checks."
+            ) from error
+        if case_sensitive:
+            return False
+
+    return True
+
+
+def _filesystem_is_case_sensitive(path):
+    directory = Path(path)
+    while True:
+        try:
+            mode = directory.stat().st_mode
+        except FileNotFoundError:
+            parent = directory.parent
+            if parent == directory:
+                raise OSError("No existing ancestor is available for probing.")
+            directory = parent
+            continue
+        if stat.S_ISDIR(mode):
+            break
+        parent = directory.parent
+        if parent == directory:
+            raise OSError("No existing directory is available for probing.")
+        directory = parent
+
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            alternative_name = entry.name.swapcase()
+            if alternative_name == entry.name:
+                continue
+            alternative_path = directory / alternative_name
+            try:
+                alternative_stat = os.lstat(alternative_path)
+            except FileNotFoundError:
+                return True
+            entry_stat = os.lstat(entry.path)
+            return (entry_stat.st_dev, entry_stat.st_ino) != (
+                alternative_stat.st_dev,
+                alternative_stat.st_ino,
+            )
+
+    descriptor, probe_name = tempfile.mkstemp(
+        prefix=".cor-case-sensitivity-",
+        dir=directory,
+    )
+    os.close(descriptor)
+    probe_path = Path(probe_name)
+    alternative_path = probe_path.with_name(probe_path.name.swapcase())
+    try:
+        try:
+            alternative_stat = os.lstat(alternative_path)
+        except FileNotFoundError:
+            return True
+        probe_stat = os.lstat(probe_path)
+        return (probe_stat.st_dev, probe_stat.st_ino) != (
+            alternative_stat.st_dev,
+            alternative_stat.st_ino,
+        )
+    finally:
+        os.unlink(probe_path)
 
 
 def _filesystem_path_exists(storage, name):

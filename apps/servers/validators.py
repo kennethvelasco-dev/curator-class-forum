@@ -1,13 +1,18 @@
 """Validation helpers for CoR uploads."""
 
+import re
 from pathlib import Path
 
 from django.core.exceptions import ValidationError
 from pypdf import PdfReader
-from pypdf.errors import PdfReadError
+from pypdf.errors import PyPdfError
 
 
 MAX_COR_FILE_SIZE = 6 * 1024 * 1024
+PDF_HEADER = b"%PDF-"
+PDF_HEADER_SEARCH_SIZE = 1024
+PDF_WHITESPACE = b"\x00\t\n\f\r "
+PDF_HEADER_PATTERN = re.compile(rb"%PDF-(?:1\.[0-7]|2\.0)(?=[\r\n]|\Z)")
 
 
 def validate_cor_file(uploaded_file):
@@ -27,6 +32,19 @@ def validate_cor_file(uploaded_file):
     original_position = uploaded_file.tell()
     try:
         uploaded_file.seek(0)
+        header_window = uploaded_file.read(PDF_HEADER_SEARCH_SIZE)
+        header_position = header_window.find(PDF_HEADER)
+        if (
+            header_position < 0
+            or header_window[:header_position].strip(PDF_WHITESPACE)
+            or not PDF_HEADER_PATTERN.match(header_window, header_position)
+        ):
+            raise ValidationError(
+                "The uploaded file is not a valid PDF.",
+                code="cor_file_invalid_pdf",
+            )
+
+        uploaded_file.seek(0)
         try:
             reader = PdfReader(uploaded_file)
             if reader.is_encrypted or not reader.pages:
@@ -34,7 +52,7 @@ def validate_cor_file(uploaded_file):
                     "The uploaded file is not a valid PDF.",
                     code="cor_file_invalid_pdf",
                 )
-        except (PdfReadError, KeyError, TypeError, ValueError) as error:
+        except (PyPdfError, KeyError, TypeError, ValueError) as error:
             raise ValidationError(
                 "The uploaded file is not a valid PDF.",
                 code="cor_file_invalid_pdf",
