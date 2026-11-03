@@ -73,6 +73,7 @@ private value and set `DJANGO_DEBUG=False` outside local development.
 | `DJANGO_DEBUG` | `True` | Enables Django debug mode |
 | `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated allowed host names |
 | `INSTITUTIONAL_EMAIL_DOMAIN` | `iskolarngbayan.pup.edu.ph` | Institutional email domain allowed for account registration |
+| `PRIVATE_COR_STORAGE_ROOT` | `../private_cor_storage` in development | Private CoR storage path; relative paths resolve against the project root. Production requires an explicit value. |
 | `EMAIL_BACKEND` | Django console backend | Local backend prints verification messages to the console |
 | `EMAIL_HOST` | Empty | SMTP host when using Django's SMTP backend |
 | `EMAIL_PORT` | `587` | SMTP port |
@@ -87,6 +88,22 @@ verification messages, including token-bearing links, to console output.
 When `DJANGO_DEBUG=False`, set `EMAIL_BACKEND` to a non-console backend such as
 `django.core.mail.backends.smtp.EmailBackend` and configure its delivery
 settings. Startup rejects the console backend in production mode.
+
+CoR documents use a private filesystem storage root that cannot generate
+public URLs. In production (`DJANGO_DEBUG=False`), explicitly configure
+`PRIVATE_COR_STORAGE_ROOT`; it must point to a persistent directory outside
+the repository and every web-server-served directory, including media and
+static roots. Relative paths resolve against the project root. The default
+development path is a sibling directory outside the repository. On Linux,
+restrict access to the storage directory and files (for example, directory
+mode `0700` and file mode `0600`); use equivalent platform ACLs elsewhere.
+The application does not implement cross-platform permission enforcement.
+Upload validation accepts PDF files up to 6 MiB. The reusable
+`apps.servers.storage.delete_cor()` service confirms a file is absent before
+reporting success; on failure it raises `CorDeletionError`, leaves database
+references untouched, and can be retried with the same stored filename.
+Request-decision workflows and durable cleanup retries require the Sprint 2
+request models and are not implemented by this storage foundation.
 
 Registration links expire after 24 hours and can be used once. Opening a link
 does not create an account; the email owner sets the password and records
