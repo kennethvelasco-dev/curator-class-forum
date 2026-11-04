@@ -13,7 +13,7 @@ from django.core.files.storage import FileSystemStorage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, override_settings
 from pypdf import PdfWriter
-from pypdf.errors import LimitReachedError
+from pypdf.errors import DependencyError, LimitReachedError
 
 from apps.servers.storage import (
     CorDeletionError,
@@ -157,6 +157,20 @@ class CorFileValidationTests(SimpleTestCase):
     def test_parser_limit_error_becomes_chained_validation_error(self):
         uploaded_file = make_upload()
         parser_error = LimitReachedError("test parser limit")
+
+        with patch(
+            "apps.servers.validators.PdfReader",
+            side_effect=parser_error,
+        ):
+            with self.assertRaises(ValidationError) as raised:
+                validate_cor_file(uploaded_file)
+
+        self.assertIs(raised.exception.__cause__, parser_error)
+        self.assertEqual(uploaded_file.tell(), 0)
+
+    def test_dependency_error_becomes_chained_validation_error(self):
+        uploaded_file = make_upload()
+        parser_error = DependencyError("AES provider unavailable")
 
         with patch(
             "apps.servers.validators.PdfReader",
@@ -462,6 +476,75 @@ class PrivateCorStorageTests(SimpleTestCase):
             side_effect=[FileNotFoundError, FakeStat()],
         ):
             self.assertTrue(_filesystem_is_case_sensitive(Path("root")))
+
+    def test_case_sensitivity_probe_skips_non_ascii_before_ascii_entry(self):
+        class FakeEntry:
+            def __init__(self, name):
+                self.name = name
+                self.path = f"root/{name}"
+
+        class FakeStat:
+            st_dev = 1
+            st_ino = 123
+
+        scan_result = MagicMock()
+        scan_result.__enter__.return_value = [
+            FakeEntry("Älpha"),
+            FakeEntry("Example"),
+        ]
+        with patch(
+            "apps.servers.storage.os.scandir",
+            return_value=scan_result,
+        ), patch(
+            "apps.servers.storage.Path.stat",
+            return_value=type("DirectoryStat", (), {"st_mode": stat.S_IFDIR})(),
+        ), patch(
+            "apps.servers.storage.os.lstat",
+            side_effect=[FakeStat(), FakeStat()],
+        ) as lstat:
+            self.assertFalse(_filesystem_is_case_sensitive(Path("root")))
+
+        self.assertEqual(lstat.call_count, 2)
+        self.assertEqual(
+            Path(lstat.call_args_list[0].args[0]),
+            Path("root") / "eXAMPLE",
+        )
+
+    def test_case_sensitivity_probe_uses_temporary_file_without_ascii_entry(self):
+        class FakeEntry:
+            name = "学生"
+            path = "root/学生"
+
+        scan_result = MagicMock()
+        scan_result.__enter__.return_value = [FakeEntry()]
+        with patch(
+            "apps.servers.storage.os.scandir",
+            return_value=scan_result,
+        ), patch(
+            "apps.servers.storage.Path.stat",
+            return_value=type("DirectoryStat", (), {"st_mode": stat.S_IFDIR})(),
+        ), patch(
+            "apps.servers.storage.tempfile.mkstemp",
+            return_value=(17, "root/.cor-case-sensitivity-aBc"),
+        ) as mkstemp, patch(
+            "apps.servers.storage.os.close",
+        ) as close, patch(
+            "apps.servers.storage.os.lstat",
+            side_effect=[FileNotFoundError],
+        ) as lstat, patch(
+            "apps.servers.storage.os.unlink",
+        ) as unlink:
+            self.assertTrue(_filesystem_is_case_sensitive(Path("root")))
+
+        mkstemp.assert_called_once()
+        close.assert_called_once_with(17)
+        self.assertEqual(
+            Path(lstat.call_args.args[0]),
+            Path("root") / ".cor-case-sensitivity-aBc".swapcase(),
+        )
+        unlink.assert_called_once_with(
+            Path("root") / ".cor-case-sensitivity-aBc"
+        )
 
 
 class CorDeletionTests(SimpleTestCase):

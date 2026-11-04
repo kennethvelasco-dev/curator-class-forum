@@ -96,7 +96,9 @@ the repository and every web-server document root, served directory, and
 public alias. Do not configure Nginx, Apache, a CDN, or another web server to
 serve or alias this directory. Relative paths resolve against the project
 root. The default development path is a sibling directory outside the
-repository.
+repository. Built-in path checks cannot discover every external web-server
+alias or deployment-specific mapping; production deployment must explicitly
+verify that the configured storage root is not publicly served.
 
 The storage backend requests directory mode `0700` and file mode `0600` when
 Django creates new directories and files. On Linux/POSIX deployments, the

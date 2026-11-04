@@ -79,6 +79,8 @@ def _filesystem_is_case_sensitive(path):
 
     with os.scandir(directory) as entries:
         for entry in entries:
+            if not entry.name.isascii():
+                continue
             alternative_name = entry.name.swapcase()
             if alternative_name == entry.name:
                 continue

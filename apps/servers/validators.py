@@ -5,7 +5,7 @@ from pathlib import Path
 
 from django.core.exceptions import ValidationError
 from pypdf import PdfReader
-from pypdf.errors import PyPdfError
+from pypdf.errors import DependencyError, PyPdfError
 
 
 MAX_COR_FILE_SIZE = 6 * 1024 * 1024
@@ -52,7 +52,13 @@ def validate_cor_file(uploaded_file):
                     "The uploaded file is not a valid PDF.",
                     code="cor_file_invalid_pdf",
                 )
-        except (PyPdfError, KeyError, TypeError, ValueError) as error:
+        except (
+            DependencyError,
+            PyPdfError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as error:
             raise ValidationError(
                 "The uploaded file is not a valid PDF.",
                 code="cor_file_invalid_pdf",
