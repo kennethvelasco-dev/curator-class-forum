@@ -34,15 +34,30 @@ def validate_cor_file(uploaded_file):
         uploaded_file.seek(0)
         header_window = uploaded_file.read(PDF_HEADER_SEARCH_SIZE)
         header_position = header_window.find(PDF_HEADER)
+        header_match = (
+            PDF_HEADER_PATTERN.match(header_window, header_position)
+            if header_position >= 0
+            else None
+        )
         if (
-            header_position < 0
+            header_match is None
             or header_window[:header_position].strip(PDF_WHITESPACE)
-            or not PDF_HEADER_PATTERN.match(header_window, header_position)
         ):
             raise ValidationError(
                 "The uploaded file is not a valid PDF.",
                 code="cor_file_invalid_pdf",
             )
+
+        if header_match.end() == len(header_window):
+            lookahead = uploaded_file.read(1)
+            is_actual_eof = not lookahead and uploaded_file.size == len(header_window)
+            if lookahead not in (b"", b"\r", b"\n") or (
+                not lookahead and not is_actual_eof
+            ):
+                raise ValidationError(
+                    "The uploaded file is not a valid PDF.",
+                    code="cor_file_invalid_pdf",
+                )
 
         uploaded_file.seek(0)
         try:

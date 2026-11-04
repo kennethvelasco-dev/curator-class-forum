@@ -106,6 +106,36 @@ class CorFileValidationTests(SimpleTestCase):
 
         validate_cor_file(uploaded_file)
 
+    def test_rejects_invalid_byte_after_pdf_version_at_window_boundary(self):
+        uploaded_file = make_upload(
+            content=b" " * 1016 + b"%PDF-1.7X" + VALID_PDF[9:]
+        )
+        uploaded_file.seek(5)
+
+        with self.assertRaisesMessage(ValidationError, "valid PDF"):
+            validate_cor_file(uploaded_file)
+
+        self.assertEqual(uploaded_file.tell(), 5)
+
+    def test_accepts_pdf_version_ending_at_actual_eof(self):
+        uploaded_file = make_upload(content=b" " * 1016 + b"%PDF-1.7")
+        uploaded_file.seek(5)
+
+        with patch(
+            "apps.servers.validators.PdfReader",
+            return_value=MagicMock(is_encrypted=False, pages=[object()]),
+        ):
+            validate_cor_file(uploaded_file)
+
+        self.assertEqual(uploaded_file.tell(), 5)
+
+    def test_accepts_window_boundary_header_terminator_and_pdf_data(self):
+        uploaded_file = make_upload(
+            content=b" " * 1016 + b"%PDF-1.7\n" + VALID_PDF[9:]
+        )
+
+        validate_cor_file(uploaded_file)
+
     def test_accepts_supported_pdf_header_versions(self):
         for version in (b"1.0", b"1.7", b"2.0"):
             with self.subTest(version=version):
