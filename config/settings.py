@@ -131,12 +131,38 @@ WSGI_APPLICATION = "config.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+DATABASE_ENGINE = os.getenv("DATABASE_ENGINE", "postgresql").strip().lower()
+
+if DATABASE_ENGINE == "postgresql":
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.getenv("POSTGRES_DB", "curator_forum"),
+            "USER": os.getenv("POSTGRES_USER", "curator_dev"),
+            "PASSWORD": os.getenv("POSTGRES_PASSWORD", ""),
+            "HOST": os.getenv("POSTGRES_HOST", "127.0.0.1"),
+            "PORT": os.getenv("POSTGRES_PORT", "5432"),
+            "TEST": {
+                "NAME": os.getenv(
+                    "POSTGRES_TEST_DB",
+                    "curator_forum_test",
+                ),
+            },
+        }
     }
-}
+
+elif DATABASE_ENGINE == "sqlite":
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
+
+else:
+    raise ImproperlyConfigured(
+        "DATABASE_ENGINE must be either 'postgresql' or 'sqlite'."
+    )
 
 
 # Password validation
