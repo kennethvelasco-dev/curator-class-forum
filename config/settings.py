@@ -52,6 +52,21 @@ if not math.isfinite(EMAIL_TIMEOUT) or EMAIL_TIMEOUT <= 0:
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Curator <noreply@localhost>")
 EMAIL_VERIFICATION_TOKEN_TTL = 24 * 60 * 60
 
+private_cor_storage_value = os.getenv("PRIVATE_COR_STORAGE_ROOT")
+if not private_cor_storage_value or not private_cor_storage_value.strip():
+    if not DEBUG:
+        raise ImproperlyConfigured(
+            "PRIVATE_COR_STORAGE_ROOT must be explicitly configured when "
+            "DJANGO_DEBUG=False."
+        )
+    private_cor_storage_root = BASE_DIR.parent / "private_cor_storage"
+else:
+    private_cor_storage_root = Path(private_cor_storage_value.strip()).expanduser()
+
+if not private_cor_storage_root.is_absolute():
+    private_cor_storage_root = BASE_DIR / private_cor_storage_root
+PRIVATE_COR_STORAGE_ROOT = private_cor_storage_root.resolve()
+
 
 # Application definition
 
