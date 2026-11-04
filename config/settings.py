@@ -131,23 +131,59 @@ WSGI_APPLICATION = "config.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASE_ENGINE = os.getenv("DATABASE_ENGINE", "postgresql").strip().lower()
+DATABASE_ENGINE = os.getenv("DATABASE_ENGINE", "sqlite").strip().lower()
 
 if DATABASE_ENGINE == "postgresql":
+    postgres_database_name = os.getenv("POSTGRES_DB", "curator_forum")
+    postgres_test_database_name = os.getenv(
+        "POSTGRES_TEST_DB",
+        "curator_forum_test",
+    )
+    if postgres_database_name == postgres_test_database_name:
+        raise ImproperlyConfigured(
+            "POSTGRES_TEST_DB must differ from POSTGRES_DB to protect the "
+            "application database during tests."
+        )
+
+    postgres_host = os.getenv("POSTGRES_HOST", "127.0.0.1").strip()
+    is_local_postgres_host = postgres_host.lower() in {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+    }
+    postgres_sslmode = os.getenv("POSTGRES_SSLMODE", "").strip().lower()
+    if not postgres_sslmode and not is_local_postgres_host:
+        postgres_sslmode = "verify-full"
+
+    if (
+        not DEBUG
+        and not is_local_postgres_host
+        and postgres_sslmode != "verify-full"
+    ):
+        raise ImproperlyConfigured(
+            "Remote PostgreSQL connections require POSTGRES_SSLMODE=verify-full "
+            "when DJANGO_DEBUG=False."
+        )
+
+    postgres_options = {}
+    if postgres_sslmode:
+        postgres_options["sslmode"] = postgres_sslmode
+    postgres_sslrootcert = os.getenv("POSTGRES_SSLROOTCERT", "").strip()
+    if postgres_sslrootcert:
+        postgres_options["sslrootcert"] = postgres_sslrootcert
+
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.getenv("POSTGRES_DB", "curator_forum"),
+            "NAME": postgres_database_name,
             "USER": os.getenv("POSTGRES_USER", "curator_dev"),
             "PASSWORD": os.getenv("POSTGRES_PASSWORD", ""),
-            "HOST": os.getenv("POSTGRES_HOST", "127.0.0.1"),
+            "HOST": postgres_host,
             "PORT": os.getenv("POSTGRES_PORT", "5432"),
             "TEST": {
-                "NAME": os.getenv(
-                    "POSTGRES_TEST_DB",
-                    "curator_forum_test",
-                ),
+                "NAME": postgres_test_database_name,
             },
+            **({"OPTIONS": postgres_options} if postgres_options else {}),
         }
     }
 

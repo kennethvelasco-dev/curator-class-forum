@@ -82,6 +82,32 @@ private value and set `DJANGO_DEBUG=False` outside local development.
 | `EMAIL_USE_TLS` | `True` | Whether SMTP uses TLS |
 | `EMAIL_TIMEOUT` | `10` | Finite SMTP connection timeout in seconds |
 | `DEFAULT_FROM_EMAIL` | `Curator <noreply@localhost>` | Sender address for verification messages |
+| `DATABASE_ENGINE` | `sqlite` | Database backend; PostgreSQL must be explicitly selected with `postgresql` |
+| `POSTGRES_DB` | `curator_forum` | PostgreSQL application database name |
+| `POSTGRES_USER` | `curator_dev` | PostgreSQL user |
+| `POSTGRES_PASSWORD` | Empty | PostgreSQL password; keep private and out of Git |
+| `POSTGRES_HOST` | `127.0.0.1` | PostgreSQL server host |
+| `POSTGRES_PORT` | `5432` | PostgreSQL server port |
+| `POSTGRES_TEST_DB` | `curator_forum_test` | Separate PostgreSQL test database; must differ from `POSTGRES_DB` |
+| `POSTGRES_SSLMODE` | `verify-full` for remote hosts; unset for loopback | Explicit PostgreSQL TLS mode; production remote hosts require `verify-full` |
+| `POSTGRES_SSLROOTCERT` | Unset | Optional path to the CA certificate used by psycopg |
+
+SQLite remains the default local database and the basic setup above requires no
+PostgreSQL server. To use PostgreSQL, explicitly set
+`DATABASE_ENGINE=postgresql` and configure `POSTGRES_DB`, `POSTGRES_USER`,
+`POSTGRES_PASSWORD`, `POSTGRES_HOST`, and `POSTGRES_PORT`. Configure
+`POSTGRES_TEST_DB` to a different database name; settings reject a collision
+before Django starts its test runner. Each test run may create and destroy its
+test database, so separate PostgreSQL test runs must not use the same test
+database concurrently. When CI jobs share a PostgreSQL service, assign a unique
+`POSTGRES_TEST_DB` to every workflow run/job.
+
+Remote PostgreSQL connections default to `sslmode=verify-full`. For a private
+or self-managed server, provide the trusted CA certificate path with
+`POSTGRES_SSLROOTCERT`; psycopg uses it for certificate validation. Loopback
+hosts (`localhost`, `127.0.0.1`, and `::1`) do not require certificate
+verification by default. When `DJANGO_DEBUG=False`, remote PostgreSQL requires
+full hostname and certificate verification; weaker modes are rejected.
 
 The console email backend is for local development only and prints
 verification messages, including token-bearing links, to console output.
