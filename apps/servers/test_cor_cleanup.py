@@ -84,6 +84,49 @@ def create_request(
 
 
 class CorFileImmutabilityTests(TransactionTestCase):
+    def test_full_save_preserves_cleanup_values_reserved_after_instance_load(self):
+        for model in REQUEST_MODELS:
+            with self.subTest(model=model.__name__):
+                request = create_request(model)
+                stale_request = model.objects.get(pk=request.pk)
+                reserved_at = timezone.now()
+
+                model.objects.filter(pk=request.pk).update(
+                    cor_cleanup_status=CorCleanupStatus.PROCESSING,
+                    cor_cleanup_attempts=1,
+                    cor_cleanup_last_attempt_at=reserved_at,
+                )
+
+                stale_request.decision_reason = "Reviewed"
+                stale_request.save()
+
+                request.refresh_from_db()
+                self.assertEqual(request.decision_reason, "Reviewed")
+                self.assertEqual(
+                    request.cor_cleanup_status,
+                    CorCleanupStatus.PROCESSING,
+                )
+                self.assertEqual(request.cor_cleanup_attempts, 1)
+                self.assertEqual(
+                    request.cor_cleanup_last_attempt_at,
+                    reserved_at,
+                )
+
+    def test_explicit_update_fields_are_not_modified(self):
+        request = create_request(ServerRequest)
+        stale_request = ServerRequest.objects.get(pk=request.pk)
+        ServerRequest.objects.filter(pk=request.pk).update(
+            cor_cleanup_status=CorCleanupStatus.PROCESSING,
+            cor_cleanup_attempts=1,
+        )
+
+        stale_request.cor_cleanup_status = CorCleanupStatus.PENDING
+        stale_request.save(update_fields=("cor_cleanup_status",))
+
+        request.refresh_from_db()
+        self.assertEqual(request.cor_cleanup_status, CorCleanupStatus.PENDING)
+        self.assertEqual(request.cor_cleanup_attempts, 1)
+
     def test_pending_requests_can_receive_initial_cor_keys(self):
         for model in REQUEST_MODELS:
             with self.subTest(model=model.__name__):

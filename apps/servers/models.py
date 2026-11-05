@@ -50,7 +50,13 @@ class CorFileRequestModel(models.Model):
                     ._base_manager.using(using)
                     .select_for_update()
                     .filter(pk=self.pk)
-                    .values("status", "cor_file", "cor_cleanup_status")
+                    .values(
+                        "status",
+                        "cor_file",
+                        "cor_cleanup_status",
+                        "cor_cleanup_attempts",
+                        "cor_cleanup_last_attempt_at",
+                    )
                     .first()
                 )
                 if (
@@ -93,6 +99,30 @@ class CorFileRequestModel(models.Model):
                             )
                         }
                     )
+                if (
+                    previous is not None
+                    and update_fields is None
+                    and previous["status"] in (
+                        RequestStatus.APPROVED,
+                        RequestStatus.REJECTED,
+                    )
+                ):
+                    cleanup_fields = (
+                        "cor_cleanup_status",
+                        "cor_cleanup_attempts",
+                        "cor_cleanup_last_attempt_at",
+                    )
+                    current_cleanup_values = {
+                        field: getattr(self, field)
+                        for field in cleanup_fields
+                    }
+                    try:
+                        for field in cleanup_fields:
+                            setattr(self, field, previous[field])
+                        return super().save(*args, **kwargs)
+                    finally:
+                        for field, value in current_cleanup_values.items():
+                            setattr(self, field, value)
                 return super().save(*args, **kwargs)
 
         super().save(*args, **kwargs)
