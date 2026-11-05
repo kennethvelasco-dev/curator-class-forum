@@ -837,6 +837,28 @@ class CorCleanupCommandTests(TransactionTestCase):
             [server_request.cor_file, join_request.cor_file],
         )
 
+    def test_repeated_limited_runs_prioritize_never_attempted_requests(self):
+        requests = [
+            create_request(
+                ServerRequest,
+                cor_file=f"server-cor-{index}.pdf",
+            )
+            for index in range(3)
+        ]
+
+        with patch(
+            "apps.servers.services.cor_cleanup.delete_cor",
+            side_effect=CorDeletionError("hidden file detail"),
+        ) as delete:
+            for _ in requests:
+                with self.assertRaises(CommandError):
+                    self.run_command("--limit", "1")
+
+        self.assertEqual(
+            [call.args[0] for call in delete.call_args_list],
+            [request.cor_file for request in requests],
+        )
+
     def test_failure_does_not_stop_processing_and_output_is_aggregate_only(self):
         request = create_request(ServerRequest, cor_file="private-secret-key.pdf")
         join_request = create_request(

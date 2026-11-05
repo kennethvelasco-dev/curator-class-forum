@@ -7,7 +7,7 @@ from itertools import cycle
 from django.core.management.base import BaseCommand, CommandError
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import DatabaseError
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 
 from apps.servers.models import (
@@ -55,7 +55,11 @@ def _eligible_requests(model):
             cor_cleanup_status=CorCleanupStatus.PROCESSING,
             cor_cleanup_last_attempt_at__isnull=True,
         )
-    ).order_by("created_at", "pk")
+    ).order_by(
+        F("cor_cleanup_last_attempt_at").asc(nulls_first=True),
+        "created_at",
+        "pk",
+    )
 
 
 def _retrieve_request(model, request_pk):
