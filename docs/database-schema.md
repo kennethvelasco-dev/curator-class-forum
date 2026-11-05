@@ -104,6 +104,9 @@ All user relationships below reference `settings.AUTH_USER_MODEL`. The models us
 | `proposed_section` | CharField(64) | No | Defaults to `""` |
 | `status` | CharField(20) | No | Pending, approved, or rejected; defaults to pending |
 | `cor_file` | CharField(255) | Yes | Private-storage key only |
+| `cor_cleanup_status` | CharField(16) | No | `not_required`, `pending`, `processing`, or `complete`; defaults to `not_required` |
+| `cor_cleanup_attempts` | PositiveIntegerField | No | Number of durably reserved cleanup attempts; defaults to `0` |
+| `cor_cleanup_last_attempt_at` | DateTimeField | Yes | Time the latest cleanup attempt was durably reserved |
 | `decision_reason` | TextField | No | Blank allowed; defaults to `""` |
 | `reviewed_by` | FK to User | Yes | `SET_NULL`; related name `server_requests_reviewed` |
 | `reviewed_at` | DateTimeField | Yes | Blank allowed |
@@ -143,6 +146,9 @@ All user relationships below reference `settings.AUTH_USER_MODEL`. The models us
 | `student_number` | CharField(64) | No | Collected for the join request |
 | `status` | CharField(20) | No | Pending, approved, or rejected; defaults to pending |
 | `cor_file` | CharField(255) | Yes | Private-storage key only |
+| `cor_cleanup_status` | CharField(16) | No | `not_required`, `pending`, `processing`, or `complete`; defaults to `not_required` |
+| `cor_cleanup_attempts` | PositiveIntegerField | No | Number of durably reserved cleanup attempts; defaults to `0` |
+| `cor_cleanup_last_attempt_at` | DateTimeField | Yes | Time the latest cleanup attempt was durably reserved |
 | `decision_reason` | TextField | No | Blank allowed; defaults to `""` |
 | `reviewed_by` | FK to User | Yes | `SET_NULL`; related name `join_requests_reviewed` |
 | `reviewed_at` | DateTimeField | Yes | Blank allowed |
@@ -234,6 +240,79 @@ classDiagram
 - A Server may have many Memberships, JoinRequests, and Channels. Each subject row belongs to one Membership or JoinRequest and cascades with its parent.
 - A ServerRequest may optionally reference the Server created from it; deleting that Server clears the reference.
 - JoinRequests and ServerRequests retain reviewer references only while the reviewer User exists; reviewer deletion sets those references to `NULL`.
+
+## CoR cleanup lifecycle (Issue #23 / FR-009)
+
+`ServerRequest` and `JoinRequest` track cleanup using the same three fields:
+
+- `not_required` is the default for requests that have not reached a final
+  decision.
+- `processing` is a durably claimed attempt. A successful claim increments
+  `cor_cleanup_attempts` and refreshes `cor_cleanup_last_attempt_at` before
+  storage I/O. Other workers cannot claim a fresh `processing` row.
+- A `processing` claim is considered abandoned after 30 minutes. The next
+  cleanup attempt may atomically replace that expired claim with a new claim
+  and increment the attempt counter. This fixed lease assumes storage work
+  finishes within 30 minutes; a worker still running after lease expiry may
+  overlap the recovery attempt. Deletion remains idempotent and stale workers
+  cannot update a newer claim because completion/failure compare-and-set
+  includes the reserved attempt number.
+- A decision workflow must store the final approved/rejected status and set
+  cleanup to `pending` in the same short database transaction.
+- Ordinary model saves on a decided request cannot replace or clear its CoR
+  key. The cleanup service clears the key only through a conditional update
+  after `delete_cor()` confirms deletion or absence.
+- `QuerySet.update()`, bulk operations, raw SQL, and shell-level direct
+  mutation bypass this application-level guard and are unsupported for
+  changing a decided request's CoR key.
+- After the decision transaction commits, the cleanup service durably reserves
+  an attempt, then verifies deletion or absence and marks cleanup `complete`.
+- If deletion cannot be verified and another worker has not completed cleanup,
+  the request returns to `pending`, retains its key, and can be retried.
+- If recording the storage failure itself fails, the row remains
+  `processing`; it becomes eligible for retry only after its claim expires.
+- A final request with no file key is finalized as `complete` without a storage
+  call or attempt increment.
+
+Attempt counts represent reservations committed before storage, not exact
+physical storage invocations. A process may crash after reservation commits
+but before it calls storage, so a reservation can exist without a corresponding
+storage invocation. Reserving before I/O prevents an actual storage attempt
+from silently disappearing from the accounting when a later database write
+fails.
+
+Migration `servers.0002_cor_cleanup_lifecycle` backfills legacy approved or
+rejected requests with a non-empty key to `pending`, and those without a key
+to `complete`. Existing pending requests remain `not_required`; the migration
+does not access storage or change business statuses or file keys. Its reverse
+data operation is a no-op, preserving the legacy status and key values before
+the new fields are removed.
+
+No approval/rejection handlers currently exist in this branch. When adding one,
+save the decision and `cor_cleanup_status=CorCleanupStatus.PENDING` inside its
+existing transaction, then register
+`transaction.on_commit(lambda: attempt_cor_cleanup(request))` after preserving
+the existing membership/server/subject operations. Inspect the result and give
+authorized operators only a generic indication when cleanup remains pending.
+Do not delete the file inside the decision transaction.
+
+Retry pending final decisions with:
+
+```powershell
+python manage.py cleanup_pending_cor_files
+python manage.py cleanup_pending_cor_files --limit 100
+python manage.py cleanup_pending_cor_files --dry-run
+```
+
+`--limit` is global across both request types, and selection alternates fairly
+between them using the most recently attempted model as the round-robin cursor.
+Expired `processing` claims are eligible for recovery by the command; fresh
+claims are excluded. Dry-run reports aggregate eligible counts only; it does not check whether any
+individual file exists. The command processes every selected request even if
+one fails, reports aggregate counts, and exits nonzero when a processed
+failure requires attention. This project has no recurring scheduler for retries:
+operators must run the command manually or configure an external scheduled
+job, and should monitor nonzero exits.
 
 ## Planned future-sprint entities (not implemented)
 

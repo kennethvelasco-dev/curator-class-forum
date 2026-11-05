@@ -147,10 +147,43 @@ The reusable `apps.servers.storage.delete_cor()` service returns
 `ALREADY_ABSENT` only when absence is confirmed. An inaccessible path,
 filesystem error, or ambiguous state raises `CorDeletionError`; the exception
 is chained for diagnostics while log messages omit the filename and underlying
-exception text. The service leaves database references untouched, so callers
-can retain the stored name and retry. Durable cleanup retries and
-request-decision workflows require the Sprint 2 request models and are not
-implemented by this storage foundation.
+exception text. The `apps.servers.services.cor_cleanup.attempt_cor_cleanup()`
+service applies this behavior to approved/rejected `ServerRequest` and
+`JoinRequest` rows. It re-reads current state, clears only the exact key that
+was verified absent, and leaves failed cleanup retryable with attempt metadata.
+The cleanup attempt is durably reserved as `processing` before storage; fresh
+claims block other workers. Claims older than 30 minutes are considered
+abandoned and may be recovered on the next cleanup run. The timeout assumes
+storage work finishes within that interval; a worker that runs longer may
+overlap recovery, though stale completion writes are fenced by the attempt
+number and deletion is idempotent. The counter records reservations, not
+guaranteed physical deletion calls: a process crash after reservation but
+before storage can leave a reservation without a storage call.
+Model saves reject replacing or clearing a decided request's CoR key. Direct
+`QuerySet.update()`, bulk operations, raw SQL, and shell mutation bypass this
+guard and are unsupported for decided-key changes.
+Decision handlers should mark cleanup pending with the final decision in their
+existing database transaction and invoke the service with `transaction.on_commit`;
+no decision handlers are implemented yet.
+
+Retry pending cleanup manually with:
+
+```powershell
+python manage.py cleanup_pending_cor_files
+python manage.py cleanup_pending_cor_files --limit 100
+python manage.py cleanup_pending_cor_files --dry-run
+```
+
+`--limit` applies globally across both request models and the command selects
+them fairly in deterministic round-robin order. Dry-run prints aggregate
+eligible counts and explicitly does not check individual file existence. A
+nonzero command result means a processed storage, retrieval, or persistence
+failure requires attention; output does not claim pending state unless that
+state was successfully confirmed.
+Recurring retries are not automatic; run the command operationally or schedule
+it externally and monitor its exit status. Legacy approved/rejected rows are
+backfilled by the cleanup lifecycle migration: rows with a file key become
+pending and rows without one become complete without accessing storage.
 
 Registration links expire after 24 hours and can be used once. Opening a link
 does not create an account; the email owner sets the password and records
