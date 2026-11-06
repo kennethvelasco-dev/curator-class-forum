@@ -177,6 +177,7 @@ All user relationships below reference `settings.AUTH_USER_MODEL`. The models us
 ### Constraints
 
 - `servers_serverrequest_status_valid`: ServerRequest status is pending, approved, or rejected.
+- `servers_serverrequest_one_pending_per_requester`: at most one pending ServerRequest per requester.
 - `servers_membership_unique_user_server`: one Membership row per user and server, regardless of status.
 - `servers_membership_one_active_president`: at most one active President per server; this does not guarantee every server has a President.
 - `servers_membership_role_valid` and `servers_membership_status_valid`: Membership role and status are valid choices.
@@ -187,6 +188,14 @@ All user relationships below reference `settings.AUTH_USER_MODEL`. The models us
 - `channels_channel_unique_server_slug`: channel slug is unique within a Server.
 - `channels_channel_type_valid`: channel type is a valid choice.
 - `channels_channel_unique_default_type`: each Server has at most one channel of each default type (announcements, calendar, and rules); subject channels may repeat.
+
+Server-request creation checks for an existing pending request before saving and
+relies on the conditional unique constraint for concurrent submissions. If a
+database race triggers an `IntegrityError`, the service translates only a
+PostgreSQL violation whose reported constraint name is
+`servers_serverrequest_one_pending_per_requester`, or a SQLite unique violation
+whose error identifies `servers_serverrequest.requester_id`. Other integrity
+errors are re-raised.
 
 ### Differences from FSD §9.3 and scope boundary
 

@@ -114,7 +114,7 @@ class ServerRequestModelTests(TestCase):
             proposed_name="Class A",
         )
         sectioned_request = ServerRequest.objects.create(
-            requester=self.requester,
+            requester=create_user("another-student@example.com"),
             proposed_name="Class B",
             proposed_section="3C",
         )
@@ -131,20 +131,35 @@ class ServerRequestModelTests(TestCase):
                     status="invalid",
                 )
 
-    def test_requester_can_have_multiple_pending_server_requests(self):
-        for index in range(2):
-            ServerRequest.objects.create(
-                requester=self.requester,
+    def test_requester_can_have_only_one_pending_server_request(self):
+        ServerRequest.objects.create(
+            requester=self.requester,
+            proposed_name="Class 0",
+        )
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                ServerRequest.objects.create(
+                    requester=self.requester,
+                    proposed_name="Class 1",
+                )
+
+    def test_requester_can_submit_again_after_a_decision(self):
+        for index, status in enumerate(
+            (RequestStatus.APPROVED, RequestStatus.REJECTED)
+        ):
+            requester = create_user(f"student-{index}@example.com")
+            previous_request = ServerRequest.objects.create(
+                requester=requester,
                 proposed_name=f"Class {index}",
             )
+            previous_request.status = status
+            previous_request.save(update_fields=["status"])
 
-        self.assertEqual(
-            ServerRequest.objects.filter(
-                requester=self.requester,
-                status=RequestStatus.PENDING,
-            ).count(),
-            2,
-        )
+            ServerRequest.objects.create(
+                requester=requester,
+                proposed_name=f"Another Class {index}",
+            )
 
     def test_created_server_is_set_null_when_server_is_deleted(self):
         server = create_server()
@@ -165,7 +180,7 @@ class ServerRequestModelTests(TestCase):
             proposed_name="Class A",
         )
         with_file = ServerRequest.objects.create(
-            requester=self.requester,
+            requester=create_user("another-student@example.com"),
             proposed_name="Class B",
             cor_file="private/1234.pdf",
         )

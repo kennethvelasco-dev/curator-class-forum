@@ -12,6 +12,14 @@ class RequestStatus(models.TextChoices):
     REJECTED = "rejected", "Rejected"
 
 
+SERVER_REQUEST_PENDING_CONSTRAINT = (
+    "servers_serverrequest_one_pending_per_requester"
+)
+SERVER_REQUEST_PENDING_MESSAGE = (
+    "You already have a pending server request."
+)
+
+
 class CorCleanupStatus(models.TextChoices):
     NOT_REQUIRED = "not_required", "Not required"
     PENDING = "pending", "Pending"
@@ -210,6 +218,12 @@ class ServerRequest(CorFileRequestModel):
 
     class Meta:
         constraints = [
+            models.UniqueConstraint(
+                fields=("requester",),
+                condition=models.Q(status=RequestStatus.PENDING),
+                name=SERVER_REQUEST_PENDING_CONSTRAINT,
+                violation_error_message=SERVER_REQUEST_PENDING_MESSAGE,
+            ),
             models.CheckConstraint(
                 condition=models.Q(status__in=RequestStatus.values),
                 name="servers_serverrequest_status_valid",

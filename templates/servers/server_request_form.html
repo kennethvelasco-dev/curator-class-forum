@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Request a class server — Curator{% endblock %}
+
+{% block content %}
+<section class="account-page">
+    <div class="account-card">
+        <p class="eyebrow">Class servers</p>
+        <h1>Request a class server</h1>
+        <p class="account-intro">
+            Submit your class details and Certificate of Registration for
+            review by a Curator Admin. Your request will remain pending until
+            it has been reviewed.
+        </p>
+        <p class="account-intro" role="note">
+            Before uploading, mask or block out your personal contact number
+            on the CoR.
+        </p>
+
+        {% if messages %}
+            {% for message in messages %}
+                <p class="account-intro" role="status">{{ message }}</p>
+            {% endfor %}
+        {% endif %}
+
+        <form method="post" enctype="multipart/form-data" class="account-form">
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+                <div class="form-errors" role="alert">
+                    {{ form.non_field_errors }}
+                </div>
+            {% endif %}
+            {% for field in form %}
+                <div class="form-field">
+                    {{ field.label_tag }}
+                    {{ field }}
+                    {% if field.help_text %}
+                        <div class="account-intro">{{ field.help_text }}</div>
+                    {% endif %}
+                    {% if field.errors %}
+                        <div class="field-errors" role="alert">
+                            {{ field.errors }}
+                        </div>
+                    {% endif %}
+                </div>
+            {% endfor %}
+            <button class="button" type="submit">Submit for Admin review</button>
+        </form>
+    </div>
+</section>
+{% endblock %}
