@@ -1,3 +1,5 @@
+"""Creation services for server requests."""
+
 import sqlite3
 
 from django.core.exceptions import ValidationError
@@ -12,6 +14,7 @@ from apps.servers.models import (
 
 
 def _is_pending_request_conflict(error):
+    """Return whether a database error names the pending-request constraint."""
     database_error = error.__cause__
     if database_error is None:
         return False
@@ -54,6 +57,7 @@ def create_server_request(
     proposed_section="",
     cor_file=None,
 ):
+    """Validate and persist a server request, translating duplicate races."""
     if ServerRequest.objects.filter(
         requester=requester,
         status=RequestStatus.PENDING,

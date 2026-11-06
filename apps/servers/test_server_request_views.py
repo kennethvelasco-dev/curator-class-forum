@@ -156,6 +156,10 @@ class ServerRequestViewTests(TestCase):
             response["Content-Disposition"],
             'inline; filename="server-request-cor.pdf"',
         )
+        self.assertEqual(
+            response["Cache-Control"],
+            "private, no-store",
+        )
         self.assertNotIn(stored_key, response["Content-Disposition"])
         self.assertNotIn(self.storage_dir.name, response["Content-Disposition"])
 
@@ -186,6 +190,7 @@ class ServerRequestViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Cache-Control"], "private, no-store")
         self.assertEqual(b"".join(response.streaming_content), VALID_PDF)
 
     def test_staff_cannot_retrieve_cor_for_approved_request(self):
@@ -310,12 +315,14 @@ class ServerRequestViewTests(TestCase):
         )
         self.client.force_login(self.user)
 
-        response = self.post_valid_request()
+        with patch("apps.servers.views.get_cor_storage") as storage_factory:
+            response = self.post_valid_request()
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "already have a pending server request")
         self.assertEqual(ServerRequest.objects.count(), 1)
         self.assertEqual(list(Path(self.storage_dir.name).iterdir()), [])
+        storage_factory.assert_not_called()
 
     def test_private_storage_failure_returns_safe_error(self):
         self.client.force_login(self.user)
@@ -398,6 +405,35 @@ class ServerRequestViewTests(TestCase):
         self.assertNotIn(self.storage_dir.name, log_output)
         self.assertNotIn("private database detail", log_output)
         self.assertNotIn("private storage detail", log_output)
+        self.assertEqual(delete_mock.call_count, 2)
+
+    def test_failed_compensating_delete_is_retried_for_same_file(self):
+        self.client.force_login(self.user)
+        delete_attempts = 0
+
+        def fail_once_then_delete(file_name, *, storage):
+            nonlocal delete_attempts
+            delete_attempts += 1
+            if delete_attempts == 1:
+                raise CorDeletionError("transient storage failure")
+            return delete_cor(file_name, storage=storage)
+
+        with patch(
+            "apps.servers.views.create_server_request",
+            side_effect=IntegrityError("private database detail"),
+        ), patch(
+            "apps.servers.views.delete_cor",
+            side_effect=fail_once_then_delete,
+        ) as delete_mock:
+            response = self.post_valid_request()
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(delete_mock.call_count, 2)
+        self.assertEqual(
+            delete_mock.call_args_list[0].args[0],
+            delete_mock.call_args_list[1].args[0],
+        )
+        self.assertEqual(list(Path(self.storage_dir.name).iterdir()), [])
 
 
 def _raise_storage_error(detail):

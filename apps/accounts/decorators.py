@@ -8,6 +8,7 @@ from django.shortcuts import render
 
 
 def admin_required(view_func):
+    """Restrict a view to active users with Django staff privileges."""
     return staff_member_required(view_func)
 
 

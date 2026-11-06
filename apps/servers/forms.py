@@ -1,9 +1,13 @@
+"""Forms for server-request submissions."""
+
 from django import forms
 
 from apps.servers.validators import validate_cor_file
 
 
 class ServerRequestForm(forms.Form):
+    """Collect proposed server details and validate a private CoR PDF."""
+
     proposed_name = forms.CharField(
         label="Proposed server name",
         max_length=255,
