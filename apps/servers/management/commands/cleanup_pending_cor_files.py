@@ -2,12 +2,11 @@
 
 import logging
 from datetime import timedelta
-from itertools import cycle
 
 from django.core.management.base import BaseCommand, CommandError
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import DatabaseError
-from django.db.models import F, Q
+from django.db.models import F, Q, Sum
 from django.utils import timezone
 
 from apps.servers.models import (
@@ -73,6 +72,13 @@ def _eligible_request_queues(model):
     return previously_attempted, never_attempted
 
 
+def _total_cleanup_attempts():
+    return sum(
+        model.objects.aggregate(total=Sum("cor_cleanup_attempts"))["total"] or 0
+        for model in _REQUEST_MODELS
+    )
+
+
 def _retrieve_request(model, request_pk):
     return model._base_manager.get(pk=request_pk)
 
@@ -95,6 +101,7 @@ def _most_recent_attempted_model():
 
 
 def _selected_requests(limit):
+    """Interleave queues by global attempt parity and models by round-robin."""
     most_recent = _most_recent_attempted_model()
     first_model = (
         JoinRequest if most_recent is ServerRequest else ServerRequest
@@ -107,30 +114,49 @@ def _selected_requests(limit):
         model: _eligible_request_queues(model)
         for model in model_order
     }
+    iterators = {
+        model: tuple(
+            iter(queue.values_list("pk", flat=True))
+            for queue in queues[model]
+        )
+        for model in model_order
+    }
+    exhausted_models = {
+        queue_index: set()
+        for queue_index in range(2)
+    }
+    primary_queue = (
+        0 if _total_cleanup_attempts() % 2 == 0 else 1
+    )
+    queue_index = primary_queue
+    next_model_index = 0
 
-    for queue_index in (0, 1):
-        iterators = {
-            model: iter(
-                queues[model][queue_index].values_list("pk", flat=True)
-            )
-            for model in model_order
-        }
-        remaining = set(model_order)
-        turn_order = cycle(model_order)
-
-        while remaining and (limit is None or len(selected) < limit):
-            model = next(turn_order)
-            if model not in remaining:
+    while limit is None or len(selected) < limit:
+        selected_from_queue = False
+        for offset in range(len(model_order)):
+            model_index = (next_model_index + offset) % len(model_order)
+            model = model_order[model_index]
+            if model in exhausted_models[queue_index]:
                 continue
             try:
-                request_pk = next(iterators[model])
+                request_pk = next(iterators[model][queue_index])
             except StopIteration:
-                remaining.remove(model)
+                exhausted_models[queue_index].add(model)
                 continue
-            selected.append((model, request_pk))
 
-        if limit is not None and len(selected) >= limit:
+            selected.append((model, request_pk))
+            next_model_index = (model_index + 1) % len(model_order)
+            queue_index = 1 - queue_index
+            selected_from_queue = True
             break
+
+        if selected_from_queue:
+            continue
+
+        other_queue = 1 - queue_index
+        if len(exhausted_models[other_queue]) == len(model_order):
+            break
+        queue_index = other_queue
 
     return selected
 
@@ -138,7 +164,10 @@ def _selected_requests(limit):
 class Command(BaseCommand):
     help = (
         "Retry cleanup of approved or rejected requests' private CoR files. "
-        "Previously attempted eligible requests are prioritized."
+        "Previously attempted and never-attempted queues alternate, starting "
+        "with the queue selected by global attempt-count parity. Models are "
+        "round-robin within each queue; --limit applies globally. Fairness "
+        "assumes cleanup command runs are serialized."
     )
 
     def add_arguments(self, parser):

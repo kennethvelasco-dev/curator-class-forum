@@ -916,34 +916,70 @@ class CorCleanupCommandTests(TransactionTestCase):
             [server_request.cor_file, join_request.cor_file],
         )
 
-    def test_repeated_limited_runs_prioritize_previously_attempted_requests(self):
+    def test_limit_one_alternates_queues_across_command_runs(self):
         attempted_request = create_request(
             ServerRequest,
             cor_file="previously-attempted.pdf",
         )
         ServerRequest.objects.filter(pk=attempted_request.pk).update(
-            cor_cleanup_attempts=1,
+            cor_cleanup_attempts=2,
             cor_cleanup_last_attempt_at=timezone.now() - timedelta(minutes=5),
         )
-        requests = [
-            create_request(
-                ServerRequest,
-                cor_file=f"server-cor-{index}.pdf",
-            )
-            for index in range(3)
-        ]
+        never_attempted = create_request(
+            ServerRequest,
+            cor_file="never-attempted.pdf",
+        )
 
         with patch(
             "apps.servers.services.cor_cleanup.delete_cor",
-            side_effect=CorDeletionError("hidden file detail"),
+            side_effect=[
+                CorDeletionResult.DELETED,
+                CorDeletionResult.DELETED,
+            ],
         ) as delete:
-            for _ in range(len(requests)):
-                with self.assertRaises(CommandError):
-                    self.run_command("--limit", "1")
+            self.run_command("--limit", "1")
+            self.run_command("--limit", "1")
 
         self.assertEqual(
             [call.args[0] for call in delete.call_args_list],
-            [attempted_request.cor_file] * len(requests),
+            [attempted_request.cor_file, never_attempted.cor_file],
+        )
+        attempted_request.refresh_from_db()
+        self.assertEqual(attempted_request.cor_cleanup_attempts, 3)
+
+    def test_successful_cleanup_keeps_parity_after_request_leaves_queue(self):
+        attempted_request = create_request(
+            ServerRequest,
+            cor_file="successful-retry.pdf",
+        )
+        attempted_key = attempted_request.cor_file
+        ServerRequest.objects.filter(pk=attempted_request.pk).update(
+            cor_cleanup_attempts=2,
+            cor_cleanup_last_attempt_at=timezone.now() - timedelta(minutes=5),
+        )
+        never_attempted = create_request(
+            ServerRequest,
+            cor_file="never-attempted.pdf",
+        )
+
+        with patch(
+            "apps.servers.services.cor_cleanup.delete_cor",
+            return_value=CorDeletionResult.DELETED,
+        ) as delete:
+            self.run_command("--limit", "1")
+
+            attempted_request.refresh_from_db()
+            self.assertEqual(
+                attempted_request.cor_cleanup_status,
+                CorCleanupStatus.COMPLETE,
+            )
+            self.assertEqual(attempted_request.cor_cleanup_attempts, 3)
+
+            self.run_command("--limit", "1")
+
+        self.assertEqual(
+            [call.args[0] for call in delete.call_args_list],
+            [attempted_key, never_attempted.cor_file],
         )
 
     def test_never_attempted_requests_are_processed_in_creation_order(self):
@@ -964,6 +1000,113 @@ class CorCleanupCommandTests(TransactionTestCase):
         self.assertEqual(
             [call.args[0] for call in delete.call_args_list],
             [request.cor_file for request in requests],
+        )
+
+    def test_batch_selection_interleaves_queues_with_global_limit(self):
+        previously_attempted = [
+            create_request(
+                ServerRequest,
+                cor_file=f"retry-{index}.pdf",
+            )
+            for index in range(2)
+        ]
+        never_attempted = [
+            create_request(
+                ServerRequest,
+                cor_file=f"new-{index}.pdf",
+            )
+            for index in range(2)
+        ]
+        for request in previously_attempted:
+            ServerRequest.objects.filter(pk=request.pk).update(
+                cor_cleanup_attempts=1,
+                cor_cleanup_last_attempt_at=timezone.now()
+                - timedelta(minutes=5),
+            )
+
+        with patch(
+            "apps.servers.services.cor_cleanup.delete_cor",
+            side_effect=CorDeletionError("hidden file detail"),
+        ) as delete:
+            with self.assertRaises(CommandError):
+                self.run_command("--limit", "4")
+
+        self.assertEqual(
+            [call.args[0] for call in delete.call_args_list],
+            [
+                previously_attempted[0].cor_file,
+                never_attempted[0].cor_file,
+                previously_attempted[1].cor_file,
+                never_attempted[1].cor_file,
+            ],
+        )
+        self.assertEqual(delete.call_count, 4)
+
+    def test_both_models_rotate_across_both_queue_families(self):
+        server_retries = [
+            create_request(ServerRequest, cor_file=f"server-retry-{i}.pdf")
+            for i in range(2)
+        ]
+        join_retry = create_request(
+            JoinRequest,
+            server=self.server,
+            cor_file="join-retry.pdf",
+        )
+        join_new = [
+            create_request(
+                JoinRequest,
+                server=self.server,
+                cor_file=f"join-new-{i}.pdf",
+            )
+            for i in range(2)
+        ]
+        server_new = create_request(
+            ServerRequest,
+            cor_file="server-new.pdf",
+        )
+        completed = create_request(
+            ServerRequest,
+            cor_file=None,
+            cleanup_status=CorCleanupStatus.COMPLETE,
+        )
+
+        attempt_times = {
+            server_retries[0]: timezone.now() - timedelta(minutes=4),
+            server_retries[1]: timezone.now() - timedelta(minutes=3),
+            join_retry: timezone.now() - timedelta(minutes=1),
+        }
+        for request, attempted_at in attempt_times.items():
+            type(request).objects.filter(pk=request.pk).update(
+                cor_cleanup_attempts=1,
+                cor_cleanup_last_attempt_at=attempted_at,
+            )
+        ServerRequest.objects.filter(pk=completed.pk).update(
+            cor_cleanup_attempts=1,
+            cor_cleanup_last_attempt_at=timezone.now() - timedelta(minutes=2),
+        )
+
+        selected = []
+        with patch(
+            "apps.servers.management.commands.cleanup_pending_cor_files."
+            "attempt_cor_cleanup",
+            side_effect=lambda request: (
+                selected.append((type(request), request.cor_file)),
+                CorCleanupOutcome.STORAGE_FAILED_RETRYABLE,
+            )[1],
+        ):
+            with self.assertRaises(CommandError):
+                self.run_command("--limit", "6")
+
+        self.assertEqual(
+            selected,
+            [
+                (ServerRequest, server_retries[0].cor_file),
+                (JoinRequest, join_new[0].cor_file),
+                (ServerRequest, server_retries[1].cor_file),
+                (JoinRequest, join_new[1].cor_file),
+                (JoinRequest, join_retry.cor_file),
+                (ServerRequest, server_new.cor_file),
+            ],
         )
 
     def test_previously_attempted_requests_are_ordered_by_oldest_attempt(self):
@@ -1039,8 +1182,12 @@ class CorCleanupCommandTests(TransactionTestCase):
         self.assertNotIn(active.pk, selected)
         self.assertNotIn(never_attempted.pk, selected)
 
-    def test_continuous_new_intake_does_not_starve_failed_retry(self):
+    def test_continuous_new_intake_and_retries_alternate_without_starvation(self):
         retry = create_request(ServerRequest, cor_file="retry-priority.pdf")
+        ServerRequest.objects.filter(pk=retry.pk).update(
+            cor_cleanup_attempts=2,
+            cor_cleanup_last_attempt_at=timezone.now() - timedelta(minutes=5),
+        )
         observed_keys = []
 
         def fail_delete(key, **kwargs):
@@ -1062,7 +1209,83 @@ class CorCleanupCommandTests(TransactionTestCase):
                 with self.assertRaises(CommandError):
                     self.run_command("--limit", "1")
 
-        self.assertEqual(observed_keys, [retry.cor_file] * 4)
+        self.assertEqual(
+            observed_keys,
+            [
+                retry.cor_file,
+                "new-intake-0.pdf",
+                retry.cor_file,
+                "new-intake-1.pdf",
+            ],
+        )
+
+    def test_completed_records_contribute_to_global_attempt_parity(self):
+        completed = create_request(
+            ServerRequest,
+            cor_file=None,
+            cleanup_status=CorCleanupStatus.COMPLETE,
+        )
+        ServerRequest.objects.filter(pk=completed.pk).update(
+            cor_cleanup_attempts=1,
+            cor_cleanup_last_attempt_at=timezone.now() - timedelta(minutes=10),
+        )
+        retry = create_request(ServerRequest, cor_file="retry.pdf")
+        ServerRequest.objects.filter(pk=retry.pk).update(
+            cor_cleanup_attempts=1,
+            cor_cleanup_last_attempt_at=timezone.now() - timedelta(minutes=5),
+        )
+        never_attempted = create_request(
+            ServerRequest,
+            cor_file="never-attempted.pdf",
+        )
+
+        with patch(
+            "apps.servers.services.cor_cleanup.delete_cor",
+            side_effect=CorDeletionError("hidden file detail"),
+        ) as delete:
+            with self.assertRaises(CommandError):
+                self.run_command("--limit", "1")
+
+        self.assertEqual(delete.call_args.args[0], retry.cor_file)
+        self.assertNotEqual(delete.call_args.args[0], never_attempted.cor_file)
+
+    def test_dry_run_does_not_change_queue_parity(self):
+        completed = create_request(
+            ServerRequest,
+            cor_file=None,
+            cleanup_status=CorCleanupStatus.COMPLETE,
+        )
+        ServerRequest.objects.filter(pk=completed.pk).update(
+            cor_cleanup_attempts=1,
+            cor_cleanup_last_attempt_at=timezone.now(),
+        )
+        retry = create_request(ServerRequest, cor_file="retry.pdf")
+        ServerRequest.objects.filter(pk=retry.pk).update(
+            cor_cleanup_attempts=1,
+            cor_cleanup_last_attempt_at=timezone.now() - timedelta(minutes=1),
+        )
+        never_attempted = create_request(
+            ServerRequest,
+            cor_file="never-attempted.pdf",
+        )
+
+        with patch(
+            "apps.servers.management.commands.cleanup_pending_cor_files."
+            "attempt_cor_cleanup"
+        ) as cleanup:
+            self.run_command("--dry-run")
+            cleanup.assert_not_called()
+
+        with patch(
+            "apps.servers.services.cor_cleanup.delete_cor",
+            return_value=CorDeletionResult.DELETED,
+        ) as delete:
+            delete.assert_not_called()
+            self.run_command("--limit", "1")
+
+        self.assertEqual(delete.call_args.args[0], retry.cor_file)
+        completed.refresh_from_db()
+        self.assertEqual(completed.cor_cleanup_attempts, 1)
 
     def test_failure_does_not_stop_processing_and_output_is_aggregate_only(self):
         request = create_request(ServerRequest, cor_file="private-secret-key.pdf")
@@ -1169,64 +1392,49 @@ class CorCleanupThreadedConcurrencyTests(TransactionTestCase):
         self.request = create_request(ServerRequest)
 
     def test_concurrent_idempotent_deletions_use_compare_and_set(self):
-        barrier = threading.Barrier(2)
-        read_lock = threading.Lock()
-        synchronized_read_count = 0
-        original_read = cor_cleanup._read_current
+        storage_started = threading.Event()
+        competing_worker_finished = threading.Event()
 
-        def synchronize_reads(model, request_pk, using):
-            nonlocal synchronized_read_count
-            request = original_read(model, request_pk, using)
-            with read_lock:
-                synchronized_read_count += 1
-                should_synchronize = synchronized_read_count <= 2
-            if should_synchronize:
-                barrier.wait(timeout=10)
-            return request
+        def delete_after_other_claimant_finishes(*args, **kwargs):
+            storage_started.set()
+            self.assertTrue(competing_worker_finished.wait(timeout=10))
+            return CorDeletionResult.DELETED
 
-        def attempt_in_thread():
+        def attempt_in_thread(*, wait_for_storage=False):
             close_old_connections()
             try:
+                if wait_for_storage:
+                    self.assertTrue(storage_started.wait(timeout=10))
                 request = ServerRequest.objects.get(pk=self.request.pk)
                 return attempt_cor_cleanup(request)
             finally:
+                if wait_for_storage:
+                    competing_worker_finished.set()
                 connections.close_all()
 
         with (
             patch(
                 "apps.servers.services.cor_cleanup.delete_cor",
-                return_value=CorDeletionResult.DELETED,
+                side_effect=delete_after_other_claimant_finishes,
             ) as delete,
-            patch(
-                "apps.servers.services.cor_cleanup._read_current",
-                side_effect=synchronize_reads,
-            ),
         ):
             with ThreadPoolExecutor(max_workers=2) as executor:
-                futures = [
-                    executor.submit(attempt_in_thread),
-                    executor.submit(attempt_in_thread),
-                ]
-                outcomes = [future.result(timeout=20) for future in futures]
+                winner = executor.submit(attempt_in_thread)
+                competing_worker = executor.submit(
+                    attempt_in_thread,
+                    wait_for_storage=True,
+                )
+                winner_outcome = winner.result(timeout=20)
+                competing_outcome = competing_worker.result(timeout=20)
 
         self.request.refresh_from_db()
         self.assertEqual(delete.call_count, 1)
-        self.assertEqual(outcomes.count(CorCleanupOutcome.DELETED), 1)
+        self.assertEqual(winner_outcome, CorCleanupOutcome.DELETED)
+        self.assertEqual(
+            competing_outcome,
+            CorCleanupOutcome.CLAIM_IN_PROGRESS,
+        )
         self.assertEqual(self.request.cor_cleanup_attempts, 1)
-        self.assertEqual(len(outcomes), 2)
-        losing_outcome = next(
-            outcome
-            for outcome in outcomes
-            if outcome != CorCleanupOutcome.DELETED
-        )
-        self.assertIn(
-            losing_outcome,
-            (
-                CorCleanupOutcome.CLAIM_IN_PROGRESS,
-                CorCleanupOutcome.ATTEMPT_RESERVATION_FAILED,
-                CorCleanupOutcome.ALREADY_COMPLETE,
-            ),
-        )
         self.assertIsNone(self.request.cor_file)
         self.assertEqual(
             self.request.cor_cleanup_status,
