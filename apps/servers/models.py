@@ -99,6 +99,32 @@ class CorFileRequestModel(models.Model):
                             )
                         }
                     )
+                cleanup_fields = (
+                    "cor_cleanup_status",
+                    "cor_cleanup_attempts",
+                    "cor_cleanup_last_attempt_at",
+                )
+                if (
+                    previous is not None
+                    and previous["status"] in (
+                        RequestStatus.APPROVED,
+                        RequestStatus.REJECTED,
+                    )
+                    and update_fields is not None
+                ):
+                    for field in cleanup_fields:
+                        if (
+                            field in update_fields
+                            and getattr(self, field) != previous[field]
+                        ):
+                            raise ValidationError(
+                                {
+                                    field: (
+                                        "Cleanup lifecycle fields can only "
+                                        "be changed by the cleanup service."
+                                    )
+                                }
+                            )
                 if (
                     previous is not None
                     and update_fields is None
@@ -107,11 +133,6 @@ class CorFileRequestModel(models.Model):
                         RequestStatus.REJECTED,
                     )
                 ):
-                    cleanup_fields = (
-                        "cor_cleanup_status",
-                        "cor_cleanup_attempts",
-                        "cor_cleanup_last_attempt_at",
-                    )
                     current_cleanup_values = {
                         field: getattr(self, field)
                         for field in cleanup_fields

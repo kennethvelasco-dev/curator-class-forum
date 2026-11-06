@@ -112,20 +112,91 @@ class CorFileImmutabilityTests(TransactionTestCase):
                     reserved_at,
                 )
 
-    def test_explicit_update_fields_are_not_modified(self):
-        request = create_request(ServerRequest)
-        stale_request = ServerRequest.objects.get(pk=request.pk)
-        ServerRequest.objects.filter(pk=request.pk).update(
-            cor_cleanup_status=CorCleanupStatus.PROCESSING,
-            cor_cleanup_attempts=1,
-        )
+    def test_stale_explicit_cleanup_field_updates_are_rejected(self):
+        cleanup_values = {
+            "cor_cleanup_status": CorCleanupStatus.PROCESSING,
+            "cor_cleanup_attempts": 2,
+            "cor_cleanup_last_attempt_at": timezone.now(),
+        }
+        for model in REQUEST_MODELS:
+            for field, stale_value in (
+                ("cor_cleanup_status", CorCleanupStatus.PENDING),
+                ("cor_cleanup_attempts", 0),
+                ("cor_cleanup_last_attempt_at", None),
+            ):
+                with self.subTest(model=model.__name__, field=field):
+                    request = create_request(model)
+                    stale_request = model.objects.get(pk=request.pk)
+                    model.objects.filter(pk=request.pk).update(**cleanup_values)
+                    setattr(stale_request, field, stale_value)
 
-        stale_request.cor_cleanup_status = CorCleanupStatus.PENDING
-        stale_request.save(update_fields=("cor_cleanup_status",))
+                    with self.assertRaises(ValidationError):
+                        stale_request.save(update_fields=(field,))
+
+                    request.refresh_from_db()
+                    self.assertEqual(
+                        request.cor_cleanup_status,
+                        cleanup_values["cor_cleanup_status"],
+                    )
+                    self.assertEqual(
+                        request.cor_cleanup_attempts,
+                        cleanup_values["cor_cleanup_attempts"],
+                    )
+                    self.assertEqual(
+                        request.cor_cleanup_last_attempt_at,
+                        cleanup_values["cor_cleanup_last_attempt_at"],
+                    )
+
+    def test_explicit_unchanged_cleanup_fields_and_unrelated_updates_are_allowed(self):
+        request = create_request(ServerRequest)
+        values = {
+            "cor_cleanup_status": CorCleanupStatus.PROCESSING,
+            "cor_cleanup_attempts": 1,
+            "cor_cleanup_last_attempt_at": timezone.now(),
+        }
+        ServerRequest.objects.filter(pk=request.pk).update(**values)
+        request.refresh_from_db()
+
+        request.save(
+            update_fields=(
+                "cor_cleanup_status",
+                "cor_cleanup_attempts",
+                "cor_cleanup_last_attempt_at",
+            )
+        )
+        request.decision_reason = "Reviewed"
+        request.save(update_fields=("decision_reason",))
 
         request.refresh_from_db()
-        self.assertEqual(request.cor_cleanup_status, CorCleanupStatus.PENDING)
-        self.assertEqual(request.cor_cleanup_attempts, 1)
+        self.assertEqual(request.cor_cleanup_status, values["cor_cleanup_status"])
+        self.assertEqual(request.cor_cleanup_attempts, values["cor_cleanup_attempts"])
+        self.assertEqual(
+            request.cor_cleanup_last_attempt_at,
+            values["cor_cleanup_last_attempt_at"],
+        )
+        self.assertEqual(request.decision_reason, "Reviewed")
+
+    def test_full_save_of_unrelated_fields_preserves_cleanup_state(self):
+        request = create_request(JoinRequest)
+        stale_request = JoinRequest.objects.get(pk=request.pk)
+        values = {
+            "cor_cleanup_status": CorCleanupStatus.PROCESSING,
+            "cor_cleanup_attempts": 1,
+            "cor_cleanup_last_attempt_at": timezone.now(),
+        }
+        JoinRequest.objects.filter(pk=request.pk).update(**values)
+
+        stale_request.decision_reason = "Reviewed"
+        stale_request.save()
+
+        request.refresh_from_db()
+        self.assertEqual(request.decision_reason, "Reviewed")
+        self.assertEqual(request.cor_cleanup_status, values["cor_cleanup_status"])
+        self.assertEqual(request.cor_cleanup_attempts, values["cor_cleanup_attempts"])
+        self.assertEqual(
+            request.cor_cleanup_last_attempt_at,
+            values["cor_cleanup_last_attempt_at"],
+        )
 
     def test_pending_requests_can_receive_initial_cor_keys(self):
         for model in REQUEST_MODELS:
@@ -256,12 +327,12 @@ class CorCleanupServiceTests(TransactionTestCase):
                 request.cor_cleanup_status = CorCleanupStatus.PROCESSING
                 request.cor_cleanup_attempts = 1
                 request.cor_cleanup_last_attempt_at = timezone.now()
-                request.save(
-                    update_fields=(
-                        "cor_cleanup_status",
-                        "cor_cleanup_attempts",
-                        "cor_cleanup_last_attempt_at",
-                    )
+                model.objects.filter(pk=request.pk).update(
+                    cor_cleanup_status=request.cor_cleanup_status,
+                    cor_cleanup_attempts=request.cor_cleanup_attempts,
+                    cor_cleanup_last_attempt_at=(
+                        request.cor_cleanup_last_attempt_at
+                    ),
                 )
                 with patch(
                     "apps.servers.services.cor_cleanup.delete_cor"
@@ -820,9 +891,17 @@ class CorCleanupCommandTests(TransactionTestCase):
         self.assertIn("selected=3", output)
         self.assertEqual(len(requests), 4)
 
-    def test_repeated_limited_runs_alternate_after_a_failed_attempt(self):
+    def test_cross_model_rotation_continues_across_attempted_queues(self):
         server_request = create_request(ServerRequest)
         join_request = create_request(JoinRequest, server=self.server)
+        ServerRequest.objects.filter(pk=server_request.pk).update(
+            cor_cleanup_attempts=1,
+            cor_cleanup_last_attempt_at=timezone.now() - timedelta(minutes=2),
+        )
+        JoinRequest.objects.filter(pk=join_request.pk).update(
+            cor_cleanup_attempts=1,
+            cor_cleanup_last_attempt_at=timezone.now() - timedelta(minutes=1),
+        )
         with patch(
             "apps.servers.services.cor_cleanup.delete_cor",
             side_effect=CorDeletionError("hidden file detail"),
@@ -837,7 +916,15 @@ class CorCleanupCommandTests(TransactionTestCase):
             [server_request.cor_file, join_request.cor_file],
         )
 
-    def test_repeated_limited_runs_prioritize_never_attempted_requests(self):
+    def test_repeated_limited_runs_prioritize_previously_attempted_requests(self):
+        attempted_request = create_request(
+            ServerRequest,
+            cor_file="previously-attempted.pdf",
+        )
+        ServerRequest.objects.filter(pk=attempted_request.pk).update(
+            cor_cleanup_attempts=1,
+            cor_cleanup_last_attempt_at=timezone.now() - timedelta(minutes=5),
+        )
         requests = [
             create_request(
                 ServerRequest,
@@ -850,14 +937,132 @@ class CorCleanupCommandTests(TransactionTestCase):
             "apps.servers.services.cor_cleanup.delete_cor",
             side_effect=CorDeletionError("hidden file detail"),
         ) as delete:
-            for _ in requests:
+            for _ in range(len(requests)):
                 with self.assertRaises(CommandError):
                     self.run_command("--limit", "1")
 
         self.assertEqual(
             [call.args[0] for call in delete.call_args_list],
+            [attempted_request.cor_file] * len(requests),
+        )
+
+    def test_never_attempted_requests_are_processed_in_creation_order(self):
+        requests = [
+            create_request(
+                ServerRequest,
+                cor_file=f"never-attempted-{index}.pdf",
+            )
+            for index in range(3)
+        ]
+        with patch(
+            "apps.servers.services.cor_cleanup.delete_cor",
+            return_value=CorDeletionResult.DELETED,
+        ) as delete:
+            for _ in requests:
+                self.run_command("--limit", "1")
+
+        self.assertEqual(
+            [call.args[0] for call in delete.call_args_list],
             [request.cor_file for request in requests],
         )
+
+    def test_previously_attempted_requests_are_ordered_by_oldest_attempt(self):
+        requests = [
+            create_request(
+                ServerRequest,
+                cor_file=f"attempted-{index}.pdf",
+            )
+            for index in range(3)
+        ]
+        attempted_at = timezone.now()
+        for index, request in enumerate(requests):
+            ServerRequest.objects.filter(pk=request.pk).update(
+                cor_cleanup_attempts=1,
+                cor_cleanup_last_attempt_at=(
+                    attempted_at - timedelta(minutes=3 - index)
+                ),
+            )
+
+        with patch(
+            "apps.servers.services.cor_cleanup.delete_cor",
+            return_value=CorDeletionResult.DELETED,
+        ) as delete:
+            for _ in requests:
+                self.run_command("--limit", "1")
+
+        self.assertEqual(
+            [call.args[0] for call in delete.call_args_list],
+            [request.cor_file for request in requests],
+        )
+
+    def test_expired_processing_is_prioritized_and_active_processing_is_excluded(self):
+        expired = create_request(
+            ServerRequest,
+            cor_file="expired-processing.pdf",
+            cleanup_status=CorCleanupStatus.PROCESSING,
+        )
+        active = create_request(
+            ServerRequest,
+            cor_file="active-processing.pdf",
+            cleanup_status=CorCleanupStatus.PROCESSING,
+        )
+        ServerRequest.objects.filter(pk=expired.pk).update(
+            cor_cleanup_attempts=1,
+            cor_cleanup_last_attempt_at=(
+                timezone.now()
+                - cor_cleanup.COR_CLEANUP_CLAIM_TIMEOUT
+                - timedelta(seconds=1)
+            ),
+        )
+        ServerRequest.objects.filter(pk=active.pk).update(
+            cor_cleanup_attempts=1,
+            cor_cleanup_last_attempt_at=timezone.now(),
+        )
+        never_attempted = create_request(
+            ServerRequest,
+            cor_file="never-attempted.pdf",
+        )
+        selected = []
+
+        with patch(
+            "apps.servers.management.commands.cleanup_pending_cor_files."
+            "attempt_cor_cleanup",
+            side_effect=lambda request: (
+                selected.append(request.pk),
+                CorCleanupOutcome.STORAGE_FAILED_RETRYABLE,
+            )[1],
+        ):
+            with self.assertRaises(CommandError):
+                self.run_command("--limit", "1")
+
+        self.assertEqual(selected, [expired.pk])
+        self.assertNotIn(active.pk, selected)
+        self.assertNotIn(never_attempted.pk, selected)
+
+    def test_continuous_new_intake_does_not_starve_failed_retry(self):
+        retry = create_request(ServerRequest, cor_file="retry-priority.pdf")
+        observed_keys = []
+
+        def fail_delete(key, **kwargs):
+            observed_keys.append(key)
+            raise CorDeletionError("hidden file detail")
+
+        with patch(
+            "apps.servers.services.cor_cleanup.delete_cor",
+            side_effect=fail_delete,
+        ):
+            with self.assertRaises(CommandError):
+                self.run_command("--limit", "1")
+
+            for index in range(3):
+                create_request(
+                    ServerRequest,
+                    cor_file=f"new-intake-{index}.pdf",
+                )
+                with self.assertRaises(CommandError):
+                    self.run_command("--limit", "1")
+
+        self.assertEqual(observed_keys, [retry.cor_file] * 4)
 
     def test_failure_does_not_stop_processing_and_output_is_aggregate_only(self):
         request = create_request(ServerRequest, cor_file="private-secret-key.pdf")
