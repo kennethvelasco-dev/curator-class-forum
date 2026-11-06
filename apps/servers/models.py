@@ -1,7 +1,8 @@
 """Models for class servers."""
 
 from django.conf import settings
-from django.db import models
+from django.core.exceptions import ValidationError
+from django.db import models, router, transaction
 from django.utils import timezone
 
 
@@ -9,6 +10,13 @@ class RequestStatus(models.TextChoices):
     PENDING = "pending", "Pending"
     APPROVED = "approved", "Approved"
     REJECTED = "rejected", "Rejected"
+
+
+class CorCleanupStatus(models.TextChoices):
+    NOT_REQUIRED = "not_required", "Not required"
+    PENDING = "pending", "Pending"
+    PROCESSING = "processing", "Processing"
+    COMPLETE = "complete", "Complete"
 
 
 class MembershipRole(models.TextChoices):
@@ -21,6 +29,124 @@ class MembershipStatus(models.TextChoices):
     ACTIVE = "active", "Active"
     LEFT = "left", "Left"
     REMOVED = "removed", "Removed"
+
+
+class CorFileRequestModel(models.Model):
+    cor_file = models.CharField(max_length=255, null=True, blank=True)
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+        if self.pk:
+            using = kwargs.get("using") or router.db_for_write(
+                type(self),
+                instance=self,
+            )
+            with transaction.atomic(using=using):
+                previous = (
+                    type(self)
+                    ._base_manager.using(using)
+                    .select_for_update()
+                    .filter(pk=self.pk)
+                    .values(
+                        "status",
+                        "cor_file",
+                        "cor_cleanup_status",
+                        "cor_cleanup_attempts",
+                        "cor_cleanup_last_attempt_at",
+                    )
+                    .first()
+                )
+                if (
+                    previous is not None
+                    and previous["status"] in (
+                        RequestStatus.APPROVED,
+                        RequestStatus.REJECTED,
+                    )
+                    and self.status != previous["status"]
+                ):
+                    raise ValidationError(
+                        {
+                            "status": (
+                                "A decided request cannot return to pending "
+                                "or change its decision."
+                            )
+                        }
+                    )
+                if (
+                    previous is not None
+                    and previous["cor_file"] != self.cor_file
+                    and (
+                        previous["status"] in (
+                            RequestStatus.APPROVED,
+                            RequestStatus.REJECTED,
+                        )
+                        or self.status in (
+                            RequestStatus.APPROVED,
+                            RequestStatus.REJECTED,
+                        )
+                        or previous["cor_cleanup_status"]
+                        != CorCleanupStatus.NOT_REQUIRED
+                    )
+                ):
+                    raise ValidationError(
+                        {
+                            "cor_file": (
+                                "The CoR file cannot be changed once the "
+                                "request is decided."
+                            )
+                        }
+                    )
+                cleanup_fields = (
+                    "cor_cleanup_status",
+                    "cor_cleanup_attempts",
+                    "cor_cleanup_last_attempt_at",
+                )
+                if (
+                    previous is not None
+                    and previous["status"] in (
+                        RequestStatus.APPROVED,
+                        RequestStatus.REJECTED,
+                    )
+                    and update_fields is not None
+                ):
+                    for field in cleanup_fields:
+                        if (
+                            field in update_fields
+                            and getattr(self, field) != previous[field]
+                        ):
+                            raise ValidationError(
+                                {
+                                    field: (
+                                        "Cleanup lifecycle fields can only "
+                                        "be changed by the cleanup service."
+                                    )
+                                }
+                            )
+                if (
+                    previous is not None
+                    and update_fields is None
+                    and previous["status"] in (
+                        RequestStatus.APPROVED,
+                        RequestStatus.REJECTED,
+                    )
+                ):
+                    current_cleanup_values = {
+                        field: getattr(self, field)
+                        for field in cleanup_fields
+                    }
+                    try:
+                        for field in cleanup_fields:
+                            setattr(self, field, previous[field])
+                        return super().save(*args, **kwargs)
+                    finally:
+                        for field, value in current_cleanup_values.items():
+                            setattr(self, field, value)
+                return super().save(*args, **kwargs)
+
+        super().save(*args, **kwargs)
 
 
 class Server(models.Model):
@@ -41,7 +167,7 @@ class Server(models.Model):
         return self.name
 
 
-class ServerRequest(models.Model):
+class ServerRequest(CorFileRequestModel):
     requester = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -54,7 +180,17 @@ class ServerRequest(models.Model):
         choices=RequestStatus,
         default=RequestStatus.PENDING,
     )
-    cor_file = models.CharField(max_length=255, null=True, blank=True)
+    cor_cleanup_status = models.CharField(
+        max_length=16,
+        choices=CorCleanupStatus.choices,
+        default=CorCleanupStatus.NOT_REQUIRED,
+    )
+    cor_cleanup_attempts = models.PositiveIntegerField(default=0)
+    cor_cleanup_last_attempt_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        default=None,
+    )
     decision_reason = models.TextField(blank=True, default="")
     reviewed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -161,7 +297,7 @@ class MembershipSubject(models.Model):
         return self.subject_code
 
 
-class JoinRequest(models.Model):
+class JoinRequest(CorFileRequestModel):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -178,7 +314,17 @@ class JoinRequest(models.Model):
         choices=RequestStatus,
         default=RequestStatus.PENDING,
     )
-    cor_file = models.CharField(max_length=255, null=True, blank=True)
+    cor_cleanup_status = models.CharField(
+        max_length=16,
+        choices=CorCleanupStatus.choices,
+        default=CorCleanupStatus.NOT_REQUIRED,
+    )
+    cor_cleanup_attempts = models.PositiveIntegerField(default=0)
+    cor_cleanup_last_attempt_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        default=None,
+    )
     decision_reason = models.TextField(blank=True, default="")
     reviewed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
