@@ -55,11 +55,22 @@ def _eligible_requests(model):
             cor_cleanup_status=CorCleanupStatus.PROCESSING,
             cor_cleanup_last_attempt_at__isnull=True,
         )
+    )
+
+
+def _eligible_request_queues(model):
+    eligible = _eligible_requests(model)
+    previously_attempted = eligible.filter(
+        cor_cleanup_last_attempt_at__isnull=False,
     ).order_by(
-        F("cor_cleanup_last_attempt_at").asc(nulls_first=True),
+        F("cor_cleanup_last_attempt_at").asc(),
         "created_at",
         "pk",
     )
+    never_attempted = eligible.filter(
+        cor_cleanup_last_attempt_at__isnull=True,
+    ).order_by("created_at", "pk")
+    return previously_attempted, never_attempted
 
 
 def _retrieve_request(model, request_pk):
@@ -91,30 +102,44 @@ def _selected_requests(limit):
     model_order = (
         (first_model, JoinRequest if first_model is ServerRequest else ServerRequest)
     )
-    iterators = {
-        model: iter(_eligible_requests(model).values_list("pk", flat=True))
+    selected = []
+    queues = {
+        model: _eligible_request_queues(model)
         for model in model_order
     }
-    remaining = set(model_order)
-    selected = []
-    turn_order = cycle(model_order)
 
-    while remaining and (limit is None or len(selected) < limit):
-        model = next(turn_order)
-        if model not in remaining:
-            continue
-        try:
-            request_pk = next(iterators[model])
-        except StopIteration:
-            remaining.remove(model)
-            continue
-        selected.append((model, request_pk))
+    for queue_index in (0, 1):
+        iterators = {
+            model: iter(
+                queues[model][queue_index].values_list("pk", flat=True)
+            )
+            for model in model_order
+        }
+        remaining = set(model_order)
+        turn_order = cycle(model_order)
+
+        while remaining and (limit is None or len(selected) < limit):
+            model = next(turn_order)
+            if model not in remaining:
+                continue
+            try:
+                request_pk = next(iterators[model])
+            except StopIteration:
+                remaining.remove(model)
+                continue
+            selected.append((model, request_pk))
+
+        if limit is not None and len(selected) >= limit:
+            break
 
     return selected
 
 
 class Command(BaseCommand):
-    help = "Retry cleanup of approved or rejected requests' private CoR files."
+    help = (
+        "Retry cleanup of approved or rejected requests' private CoR files. "
+        "Previously attempted eligible requests are prioritized."
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(
