@@ -12,16 +12,26 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from apps.accounts.decorators import admin_required, verified_required
 from apps.servers.forms import (
+    JoinRequestDecisionForm,
+    JoinRequestForm,
     ServerRequestDecisionForm,
     ServerRequestForm,
 )
 from apps.servers.models import (
+    JoinRequest,
+    Membership,
+    MembershipRole,
+    MembershipStatus,
     RequestStatus,
     SERVER_REQUEST_PENDING_MESSAGE,
+    Server,
     ServerRequest,
 )
+from apps.servers.permissions import is_active_president_of_server
 from apps.servers.services.server_requests import (
+    create_join_request,
     create_server_request,
+    decide_join_request,
     decide_server_request,
 )
 from apps.servers.storage import delete_cor, get_cor_storage
@@ -40,6 +50,16 @@ def _render_server_request(request, form, *, status=200):
     )
 
 
+def _render_join_request(request, form, *, status=200):
+    """Render the join-request form with the supplied validation state."""
+    return render(
+        request,
+        "servers/join_request_form.html",
+        {"form": form},
+        status=status,
+    )
+
+
 def _delete_failed_submission_upload(storage, file_name):
     """Retry deletion once for the exact upload left by a failed submission."""
     for attempt in range(2):
@@ -49,7 +69,7 @@ def _delete_failed_submission_upload(storage, file_name):
         except Exception as error:
             if attempt == 1:
                 logger.error(
-                    "CoR cleanup after failed server-request submission "
+                    "CoR cleanup after failed request submission "
                     "failed after retry (exception type %s).",
                     type(error).__name__,
                 )
@@ -129,6 +149,208 @@ def server_request(request):
         "Your server request was submitted and is pending Admin review.",
     )
     return redirect("servers:server_request")
+
+
+@verified_required
+@require_http_methods(["GET", "POST"])
+def join_request(request):
+    """Accept a verified student's private CoR-backed join request."""
+    if request.method == "GET":
+        return _render_join_request(request, JoinRequestForm(request=request))
+
+    form = JoinRequestForm(request.POST, request.FILES, request=request)
+    if not form.is_valid():
+        return _render_join_request(request, form)
+
+    server = form.cleaned_data["server"]
+    if Membership.objects.filter(
+        user=request.user,
+        server=server,
+        status=MembershipStatus.ACTIVE,
+    ).exists():
+        form.add_error("server", "You already belong to this server.")
+        return _render_join_request(request, form)
+
+    if JoinRequest.objects.filter(
+        user=request.user,
+        server=server,
+        status=RequestStatus.PENDING,
+    ).exists():
+        form.add_error("server", "You already have a pending join request for this server.")
+        return _render_join_request(request, form)
+
+    uploaded_file = form.cleaned_data["cor_file"]
+    try:
+        storage = get_cor_storage()
+        stored_file = storage.save(uploaded_file.name, uploaded_file)
+    except Exception as error:
+        logger.error(
+            "Private CoR storage failed during join-request submission "
+            "(exception type %s).",
+            type(error).__name__,
+        )
+        form.add_error(
+            "cor_file",
+            "We could not securely store your document. Please try again.",
+        )
+        return _render_join_request(request, form, status=503)
+
+    try:
+        create_join_request(
+            user=request.user,
+            server=server,
+            student_number=form.cleaned_data["student_number"],
+            subjects=form.cleaned_data["subject_entries"],
+            cor_file=stored_file,
+        )
+    except ValidationError as error:
+        _delete_failed_submission_upload(storage, stored_file)
+        form.add_error(None, error.messages)
+        return _render_join_request(request, form)
+    except DatabaseError as error:
+        _delete_failed_submission_upload(storage, stored_file)
+        logger.error(
+            "Join-request persistence failed (exception type %s).",
+            type(error).__name__,
+        )
+        form.add_error(
+            None,
+            "We could not submit your request. Please try again.",
+        )
+        return _render_join_request(request, form, status=503)
+    except Exception as error:
+        _delete_failed_submission_upload(storage, stored_file)
+        logger.error(
+            "Join-request submission failed (exception type %s).",
+            type(error).__name__,
+        )
+        form.add_error(
+            None,
+            "We could not submit your request. Please try again.",
+        )
+        return _render_join_request(request, form, status=503)
+
+    messages.success(
+        request,
+        "Your join request has been submitted successfully and is pending President review.",
+    )
+    return redirect("servers:join_request")
+
+
+@never_cache
+@verified_required
+@require_http_methods(["GET"])
+def join_request_queue(request):
+    """Show the pending join requests for the acting President's server(s)."""
+    president_memberships = Membership.objects.filter(
+        user=request.user,
+        role=MembershipRole.PRESIDENT,
+        status=MembershipStatus.ACTIVE,
+    ).select_related("server")
+    if not president_memberships.exists():
+        return render(
+            request,
+            "servers/join_request_queue.html",
+            {"review_items": []},
+            status=403,
+        )
+
+    server_ids = [membership.server_id for membership in president_memberships]
+    pending_requests = list(
+        JoinRequest.objects.filter(
+            server_id__in=server_ids,
+            status=RequestStatus.PENDING,
+        )
+        .select_related("user", "server")
+        .order_by("created_at", "pk")
+    )
+    return render(
+        request,
+        "servers/join_request_queue.html",
+        {"review_items": pending_requests},
+    )
+
+
+@never_cache
+@verified_required
+@require_POST
+def decide_join_request_view(request, request_id):
+    """Record a pending join-request decision from the active President."""
+    form = JoinRequestDecisionForm(request.POST)
+    if not form.is_valid():
+        messages.error(
+            request,
+            "; ".join(error for errors in form.errors.values() for error in errors),
+        )
+        return redirect("servers:join_request_queue")
+
+    try:
+        decided_request = decide_join_request(
+            request_id=request_id,
+            reviewer=request.user,
+            decision=form.cleaned_data["decision"],
+            decision_reason=form.cleaned_data["decision_reason"],
+            membership_role=form.cleaned_data.get("membership_role"),
+        )
+    except JoinRequest.DoesNotExist:
+        raise Http404 from None
+    except ValidationError as error:
+        messages.error(request, "; ".join(error.messages))
+        return redirect("servers:join_request_queue")
+    except DatabaseError as error:
+        logger.error(
+            "Join-request decision failed (exception type %s).",
+            type(error).__name__,
+        )
+        messages.error(
+            request,
+            "We could not record this decision. Please try again.",
+        )
+        return redirect("servers:join_request_queue")
+
+    if decided_request.status == RequestStatus.APPROVED:
+        messages.success(request, "The join request was approved.")
+    else:
+        messages.success(request, "The join request was rejected.")
+    return redirect("servers:join_request_queue")
+
+
+@verified_required
+@require_http_methods(["GET"])
+def join_request_cor(request, request_id):
+    """Serve a pending join request's CoR to its active President."""
+    request_obj = get_object_or_404(
+        JoinRequest,
+        pk=request_id,
+        status=RequestStatus.PENDING,
+    )
+    if not is_active_president_of_server(request.user, request_obj.server):
+        raise Http404
+    if not request_obj.cor_file:
+        raise Http404
+
+    try:
+        document = get_cor_storage().open(request_obj.cor_file, "rb")
+    except FileNotFoundError:
+        raise Http404 from None
+    except Exception as error:
+        logger.error(
+            "Private join-request CoR access failed (exception type %s).",
+            type(error).__name__,
+        )
+        return HttpResponse(
+            "We could not retrieve this document. Please try again later.",
+            status=503,
+        )
+
+    return FileResponse(
+        document,
+        as_attachment=True,
+        filename="join-request-cor.pdf",
+        headers={
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 def _render_admin_server_request_queue(
