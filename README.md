@@ -54,6 +54,9 @@ Run the test suite with `python manage.py test`.
   request for Admin review
 - `/servers/request/<request-id>/cor/` — active staff can inspect a request's
   private CoR; the storage key is never exposed as a public URL
+- `/servers/admin/server-requests/` — active staff review pending server
+  requests; decisions are submitted to
+  `/servers/admin/server-requests/<request-id>/decision/`
 - `/servers/`, `/channels/`, `/discussions/`, `/announcements/`, and
   `/moderation/` — mounted app namespaces; other endpoints are not implemented yet
 - `/admin/` — Django administration

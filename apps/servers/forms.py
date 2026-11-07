@@ -27,3 +27,20 @@ class ServerRequestForm(forms.Form):
         ),
         validators=[validate_cor_file],
     )
+
+
+class ServerRequestDecisionForm(forms.Form):
+    """Collect and validate a platform Admin's server-request decision."""
+
+    decision = forms.ChoiceField(
+        choices=(
+            ("approved", "Approve"),
+            ("rejected", "Reject"),
+        ),
+        label="Decision",
+    )
+    decision_reason = forms.CharField(
+        label="Reason",
+        strip=True,
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )

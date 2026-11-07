@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Server request review — Curator{% endblock %}
+
+{% block content %}
+<section class="account-page">
+    <div class="account-card">
+        <p class="eyebrow">Platform administration</p>
+        <h1>Pending server requests</h1>
+
+        {% if messages %}
+            {% for message in messages %}
+                <p class="account-intro" role="status">{{ message }}</p>
+            {% endfor %}
+        {% endif %}
+
+        {% if review_items %}
+            {% for item in review_items %}
+                {% with server_request=item.server_request %}
+                <article class="account-card">
+                    <h2>{{ server_request.proposed_name }}</h2>
+                    <dl class="account-details">
+                        <div>
+                            <dt>Section</dt>
+                            <dd>{{ server_request.proposed_section|default:"Not provided" }}</dd>
+                        </div>
+                        <div>
+                            <dt>Requester</dt>
+                            <dd>{{ server_request.requester.full_name }}</dd>
+                        </div>
+                        <div>
+                            <dt>Institutional email</dt>
+                            <dd>{{ server_request.requester.email }}</dd>
+                        </div>
+                        <div>
+                            <dt>Submitted</dt>
+                            <dd>{{ server_request.created_at }}</dd>
+                        </div>
+                    </dl>
+
+                    {% if server_request.cor_file %}
+                        <p class="account-intro">
+                            <a href="{% url 'servers:server_request_cor' server_request.pk %}">
+                                Review Certificate of Registration
+                            </a>
+                        </p>
+                    {% endif %}
+
+                    <form
+                        method="post"
+                        action="{% url 'servers:decide_server_request' server_request.pk %}"
+                        class="account-form"
+                    >
+                        {% csrf_token %}
+                        {{ item.form.as_p }}
+                        <button class="button" type="submit">Record decision</button>
+                    </form>
+                </article>
+                {% endwith %}
+            {% endfor %}
+        {% else %}
+            <p class="account-intro">There are no pending server requests.</p>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

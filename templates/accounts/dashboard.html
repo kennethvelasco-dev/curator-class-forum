@@ -20,6 +20,13 @@
         <p class="account-intro">
             <a href="{% url 'servers:server_request' %}">Request a class server</a>
         </p>
+        {% if request.user.is_staff %}
+            <p class="account-intro">
+                <a href="{% url 'servers:admin_server_request_queue' %}">
+                    Review server requests
+                </a>
+            </p>
+        {% endif %}
         <form method="post" action="{% url 'accounts:logout' %}">
             {% csrf_token %}
             <button class="button" type="submit">Sign out</button>

@@ -7,16 +7,23 @@ from django.core.exceptions import ValidationError
 from django.db import DatabaseError
 from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.http import require_http_methods
+from django.views.decorators.cache import never_cache
+from django.views.decorators.http import require_http_methods, require_POST
 
 from apps.accounts.decorators import admin_required, verified_required
-from apps.servers.forms import ServerRequestForm
+from apps.servers.forms import (
+    ServerRequestDecisionForm,
+    ServerRequestForm,
+)
 from apps.servers.models import (
     RequestStatus,
     SERVER_REQUEST_PENDING_MESSAGE,
     ServerRequest,
 )
-from apps.servers.services.server_requests import create_server_request
+from apps.servers.services.server_requests import (
+    create_server_request,
+    decide_server_request,
+)
 from apps.servers.storage import delete_cor, get_cor_storage
 
 
@@ -122,6 +129,99 @@ def server_request(request):
         "Your server request was submitted and is pending Admin review.",
     )
     return redirect("servers:server_request")
+
+
+def _render_admin_server_request_queue(
+    request,
+    *,
+    form=None,
+    decision_request_id=None,
+    status=200,
+):
+    server_requests = list(
+        ServerRequest.objects.filter(status=RequestStatus.PENDING)
+        .select_related("requester")
+        .order_by("created_at", "pk")
+    )
+    review_items = [
+        {
+            "server_request": server_request,
+            "form": (
+                form
+                if server_request.pk == decision_request_id and form is not None
+                else ServerRequestDecisionForm(
+                    prefix=f"request-{server_request.pk}"
+                )
+            ),
+        }
+        for server_request in server_requests
+    ]
+    return render(
+        request,
+        "servers/admin_server_request_queue.html",
+        {
+            "review_items": review_items,
+        },
+        status=status,
+    )
+
+
+@never_cache
+@admin_required
+@require_http_methods(["GET"])
+def admin_server_request_queue(request):
+    """Show pending server requests to active platform staff."""
+    return _render_admin_server_request_queue(request)
+
+
+@admin_required
+@require_POST
+def decide_server_request_view(request, request_id):
+    """Record an Admin decision for a pending server request."""
+    form = ServerRequestDecisionForm(
+        request.POST,
+        prefix=f"request-{request_id}",
+    )
+    if not form.is_valid():
+        return _render_admin_server_request_queue(
+            request,
+            form=form,
+            decision_request_id=request_id,
+            status=400,
+        )
+
+    try:
+        decided_request = decide_server_request(
+            request_id=request_id,
+            reviewer=request.user,
+            decision=form.cleaned_data["decision"],
+            decision_reason=form.cleaned_data["decision_reason"],
+        )
+    except ServerRequest.DoesNotExist:
+        raise Http404 from None
+    except ValidationError as error:
+        messages.error(request, "; ".join(error.messages))
+        return redirect("servers:admin_server_request_queue")
+    except DatabaseError as error:
+        logger.error(
+            "Server-request decision failed "
+            "(exception type %s).",
+            type(error).__name__,
+        )
+        messages.error(
+            request,
+            "We could not record this decision. Please try again.",
+        )
+        return redirect("servers:admin_server_request_queue")
+
+    if decided_request.status == RequestStatus.APPROVED:
+        messages.success(
+            request,
+            "The server request was approved and the class server was created.",
+        )
+    else:
+        messages.success(request, "The server request was rejected.")
+    return redirect("servers:admin_server_request_queue")
 
 
 @admin_required
