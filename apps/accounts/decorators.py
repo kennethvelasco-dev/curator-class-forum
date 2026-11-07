@@ -2,8 +2,14 @@
 
 from functools import wraps
 
+from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
+
+
+def admin_required(view_func):
+    """Restrict a view to active users with Django staff privileges."""
+    return staff_member_required(view_func)
 
 
 def verified_required(view_func):

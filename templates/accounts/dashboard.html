@@ -17,6 +17,9 @@
                 <dd>{{ request.user.email }}</dd>
             </div>
         </dl>
+        <p class="account-intro">
+            <a href="{% url 'servers:server_request' %}">Request a class server</a>
+        </p>
         <form method="post" action="{% url 'accounts:logout' %}">
             {% csrf_token %}
             <button class="button" type="submit">Sign out</button>

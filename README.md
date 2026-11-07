@@ -50,11 +50,16 @@ Run the test suite with `python manage.py test`.
 - `/accounts/login/` and `/accounts/logout/` — email sign-in and POST-only
   sign-out
 - `/accounts/dashboard/` — protected account dashboard for verified users
+- `/servers/request/` — verified students submit a CoR-backed class server
+  request for Admin review
+- `/servers/request/<request-id>/cor/` — active staff can inspect a request's
+  private CoR; the storage key is never exposed as a public URL
 - `/servers/`, `/channels/`, `/discussions/`, `/announcements/`, and
-  `/moderation/` — mounted app namespaces; endpoints are not implemented yet
+  `/moderation/` — mounted app namespaces; other endpoints are not implemented yet
 - `/admin/` — Django administration
 
-Server, channel, discussion, announcement, and moderation routes are not
+The server-request route is available to verified users. Other server
+workflows, channel, discussion, announcement, and moderation routes are not
 implemented yet.
 
 ## Database schema
