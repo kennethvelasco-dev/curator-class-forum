@@ -174,6 +174,7 @@ def admin_server_request_queue(request):
     return _render_admin_server_request_queue(request)
 
 
+@never_cache
 @admin_required
 @require_POST
 def decide_server_request_view(request, request_id):
