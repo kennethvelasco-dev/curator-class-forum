@@ -6,6 +6,18 @@ from apps.servers import views
 app_name = "servers"
 urlpatterns = [
     path("request/", views.server_request, name="server_request"),
+    path("join/", views.join_request, name="join_request"),
+    path("join/queue/", views.join_request_queue, name="join_request_queue"),
+    path(
+        "join/<int:request_id>/decision/",
+        views.decide_join_request_view,
+        name="decide_join_request",
+    ),
+    path(
+        "join/<int:request_id>/cor/",
+        views.join_request_cor,
+        name="join_request_cor",
+    ),
     path(
         "admin/server-requests/",
         views.admin_server_request_queue,

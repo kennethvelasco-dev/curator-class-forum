@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Join a class server — Curator{% endblock %}
+
+{% block content %}
+<section class="account-page">
+    <div class="account-card">
+        <p class="eyebrow">Class servers</p>
+        <h1>Join a class server</h1>
+        <p class="account-intro">
+            Submit your student details, confirm your subject/section entries,
+            and upload a private CoR for review by the server President.
+        </p>
+        <p class="account-intro" role="note">
+            Before uploading, block out your contact number on your CoR.
+        </p>
+
+        {% if messages %}
+            {% for message in messages %}
+                <p class="account-intro" role="status">{{ message }}</p>
+            {% endfor %}
+        {% endif %}
+
+        <form method="post" enctype="multipart/form-data" class="account-form">
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+                <div class="form-errors" role="alert">
+                    {{ form.non_field_errors }}
+                </div>
+            {% endif %}
+            {% for field in form %}
+                <div class="form-field">
+                    {{ field.label_tag }}
+                    {{ field }}
+                    {% if field.help_text %}
+                        <div class="account-intro">{{ field.help_text }}</div>
+                    {% endif %}
+                    {% if field.errors %}
+                        <div class="field-errors" role="alert">
+                            {{ field.errors }}
+                        </div>
+                    {% endif %}
+                </div>
+            {% endfor %}
+            <button class="button" type="submit">Submit join request</button>
+        </form>
+    </div>
+</section>
+{% endblock %}

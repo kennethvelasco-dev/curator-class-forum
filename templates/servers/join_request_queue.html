@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Pending join requests — Curator{% endblock %}
+
+{% block content %}
+<section class="account-page">
+    <div class="account-card">
+        <p class="eyebrow">Class servers</p>
+        <h1>Pending join requests</h1>
+
+        {% if messages %}
+            {% for message in messages %}
+                <p class="account-intro" role="status">{{ message }}</p>
+            {% endfor %}
+        {% endif %}
+
+        {% if not review_items %}
+            <p class="account-intro">There are no pending join requests for your server.</p>
+        {% else %}
+            {% for item in review_items %}
+                <div class="form-card">
+                    <h2>{{ item.user.full_name }}</h2>
+                    <p><strong>Student number:</strong> {{ item.student_number }}</p>
+                    <p><strong>Server:</strong> {{ item.server.name }}{% if item.server.section %} — {{ item.server.section }}{% endif %}</p>
+                    <p><strong>Submitted:</strong> {{ item.created_at }}</p>
+                    {% if item.subjects.exists %}
+                        <ul>
+                            {% for subject in item.subjects.all %}
+                                <li>{{ subject.subject_code }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                    <p><a href="{% url 'servers:join_request_cor' item.pk %}">View CoR</a></p>
+                    <form method="post" action="{% url 'servers:decide_join_request' item.pk %}">
+                        {% csrf_token %}
+                        <label for="decision-{{ item.pk }}">Decision</label>
+                        <select id="decision-{{ item.pk }}" name="decision">
+                            <option value="approved">Approve</option>
+                            <option value="rejected">Reject</option>
+                        </select>
+                        <label for="reason-{{ item.pk }}">Reason</label>
+                        <textarea id="reason-{{ item.pk }}" name="decision_reason" rows="3"></textarea>
+                        <label for="role-{{ item.pk }}">Returning member role</label>
+                        <select id="role-{{ item.pk }}" name="membership_role">
+                            <option value="">Choose role</option>
+                            <option value="student">Student</option>
+                            <option value="officer">Officer</option>
+                        </select>
+                        <button class="button" type="submit">Submit decision</button>
+                    </form>
+                </div>
+            {% endfor %}
+        {% endif %}
+    </div>
+</section>
+{% endblock %}
