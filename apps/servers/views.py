@@ -278,19 +278,11 @@ def decide_join_request_view(request, request_id):
     """Record a pending join-request decision from the active President."""
     form = JoinRequestDecisionForm(request.POST)
     if not form.is_valid():
-        return render(
+        messages.error(
             request,
-            "servers/join_request_queue.html",
-            {"review_items": list(
-                JoinRequest.objects.filter(
-                    server__memberships__user=request.user,
-                    server__memberships__role=MembershipRole.PRESIDENT,
-                    server__memberships__status=MembershipStatus.ACTIVE,
-                    status=RequestStatus.PENDING,
-                ).select_related("user", "server")
-            )},
-            status=400,
+            "; ".join(error for errors in form.errors.values() for error in errors),
         )
+        return redirect("servers:join_request_queue")
 
     try:
         decided_request = decide_join_request(

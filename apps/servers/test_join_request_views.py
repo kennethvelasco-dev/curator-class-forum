@@ -389,7 +389,11 @@ class JoinRequestPresidentViewTests(TestCase):
             decision_url,
             {"decision": "rejected", "decision_reason": "  "},
         )
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(
+            "This field is required.",
+            [str(message) for message in response.wsgi_request._messages],
+        )
         self.request.refresh_from_db()
         self.assertEqual(self.request.status, RequestStatus.PENDING)
 
