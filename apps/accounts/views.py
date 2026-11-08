@@ -29,6 +29,7 @@ from apps.accounts.tokens import (
     issue_email_verification_token,
     issue_registration_token,
 )
+from apps.servers.models import Membership, MembershipRole, MembershipStatus
 
 REGISTRATION_VERIFICATION_SESSION_KEY = "accounts.registration_verification"
 EMAIL_VERIFICATION_SESSION_KEY = "accounts.email_verification"
@@ -137,7 +138,16 @@ def registration_complete(request):
 
 @verified_required
 def dashboard(request):
-    return render(request, "accounts/dashboard.html")
+    has_active_president_membership = Membership.objects.filter(
+        user=request.user,
+        role=MembershipRole.PRESIDENT,
+        status=MembershipStatus.ACTIVE,
+    ).exists()
+    return render(
+        request,
+        "accounts/dashboard.html",
+        {"has_active_president_membership": has_active_president_membership},
+    )
 
 
 @never_cache

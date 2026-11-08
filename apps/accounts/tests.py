@@ -31,6 +31,7 @@ from apps.accounts.forms import (
 from apps.accounts.logging import RedactVerificationTokenFilter
 from apps.accounts.models import EmailVerificationToken, PendingRegistration, User
 from apps.accounts.tokens import issue_email_verification_token
+from apps.servers.models import Membership, MembershipRole, MembershipStatus, Server
 
 
 REGISTRATION_DOMAIN = "iskolarngbayan.pup.edu.ph"
@@ -757,6 +758,51 @@ class AccountDashboardTests(TestCase):
 
         self.assertRedirects(response, reverse("accounts:login"))
         self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_dashboard_shows_join_link_to_verified_student_without_president_membership(self):
+        user = self.create_user()
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("accounts:dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Join a class server")
+        self.assertNotContains(response, "Review join requests")
+
+    def test_dashboard_shows_join_review_link_to_active_president(self):
+        user = self.create_user()
+        self.client.force_login(user)
+
+        server = Server.objects.create(name="CS 101", slug="cs-101")
+        Membership.objects.create(
+            user=user,
+            server=server,
+            role=MembershipRole.PRESIDENT,
+            status=MembershipStatus.ACTIVE,
+        )
+
+        response = self.client.get(reverse("accounts:dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Join a class server")
+        self.assertContains(response, "Review join requests")
+
+    def test_dashboard_hides_join_review_link_from_inactive_president(self):
+        user = self.create_user()
+        self.client.force_login(user)
+
+        server = Server.objects.create(name="CS 102", slug="cs-102")
+        Membership.objects.create(
+            user=user,
+            server=server,
+            role=MembershipRole.PRESIDENT,
+            status=MembershipStatus.LEFT,
+        )
+
+        response = self.client.get(reverse("accounts:dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Review join requests")
 
 
 @override_settings(

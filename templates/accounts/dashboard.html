@@ -20,6 +20,16 @@
         <p class="account-intro">
             <a href="{% url 'servers:server_request' %}">Request a class server</a>
         </p>
+        <p class="account-intro">
+            <a href="{% url 'servers:join_request' %}">Join a class server</a>
+        </p>
+        {% if has_active_president_membership %}
+            <p class="account-intro">
+                <a href="{% url 'servers:join_request_queue' %}">
+                    Review join requests
+                </a>
+            </p>
+        {% endif %}
         {% if request.user.is_staff %}
             <p class="account-intro">
                 <a href="{% url 'servers:admin_server_request_queue' %}">
