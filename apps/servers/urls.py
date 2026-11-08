@@ -33,4 +33,10 @@ urlpatterns = [
         views.server_request_cor,
         name="server_request_cor",
     ),
+    path("switch/", views.switch_server, name="switch_server"),
+    path(
+        "<int:server_id>/transfer-presidency/",
+        views.transfer_presidency_view,
+        name="transfer_presidency",
+    ),
 ]

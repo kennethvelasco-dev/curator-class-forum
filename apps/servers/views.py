@@ -11,11 +11,14 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_POST
 
 from apps.accounts.decorators import admin_required, verified_required
+from apps.servers.context import set_active_server
 from apps.servers.forms import (
     JoinRequestDecisionForm,
     JoinRequestForm,
+    PresidentTransferForm,
     ServerRequestDecisionForm,
     ServerRequestForm,
+    ServerSwitchForm,
 )
 from apps.servers.models import (
     JoinRequest,
@@ -34,6 +37,7 @@ from apps.servers.services.server_requests import (
     decide_join_request,
     decide_server_request,
 )
+from apps.servers.services.transfer import transfer_presidency
 from apps.servers.storage import delete_cor, get_cor_storage
 
 
@@ -479,3 +483,105 @@ def server_request_cor(request, request_id):
     )
     response["Cache-Control"] = "private, no-store"
     return response
+
+
+@verified_required
+@require_POST
+def switch_server(request):
+    """Switch the user's active server context after membership validation."""
+    form = ServerSwitchForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Select a valid server.")
+        return redirect("accounts:dashboard")
+
+    if set_active_server(request, form.cleaned_data["server_id"]):
+        messages.success(request, "Server context updated.")
+    else:
+        messages.error(
+            request,
+            "You do not have an active membership in that server.",
+        )
+    return redirect("accounts:dashboard")
+
+
+@never_cache
+@verified_required
+@require_http_methods(["GET", "POST"])
+def transfer_presidency_view(request, server_id):
+    """Allow the active President to transfer title to another active member."""
+    server = get_object_or_404(Server, pk=server_id, is_active=True)
+    if not is_active_president_of_server(request.user, server):
+        raise Http404
+
+    eligible = (
+        Membership.objects.filter(
+            server=server,
+            status=MembershipStatus.ACTIVE,
+            user__is_email_verified=True,
+            user__is_active=True,
+        )
+        .exclude(user=request.user)
+        .select_related("user")
+        .order_by("user__full_name", "pk")
+    )
+
+    if request.method == "GET":
+        form = PresidentTransferForm()
+        return render(
+            request,
+            "servers/transfer_presidency.html",
+            {
+                "server": server,
+                "form": form,
+                "eligible_members": eligible,
+            },
+        )
+
+    form = PresidentTransferForm(request.POST)
+    if not form.is_valid():
+        return render(
+            request,
+            "servers/transfer_presidency.html",
+            {
+                "server": server,
+                "form": form,
+                "eligible_members": eligible,
+            },
+            status=400,
+        )
+
+    try:
+        transfer_presidency(
+            server=server,
+            acting_user=request.user,
+            target_membership_id=form.cleaned_data["target_membership_id"],
+            password=form.cleaned_data["password"],
+        )
+    except ValidationError as error:
+        messages.error(request, "; ".join(error.messages))
+        return render(
+            request,
+            "servers/transfer_presidency.html",
+            {
+                "server": server,
+                "form": form,
+                "eligible_members": eligible,
+            },
+            status=400,
+        )
+    except DatabaseError as error:
+        logger.error(
+            "President transfer failed (exception type %s).",
+            type(error).__name__,
+        )
+        messages.error(
+            request,
+            "We could not complete the transfer. Please try again.",
+        )
+        return redirect("accounts:dashboard")
+
+    messages.success(
+        request,
+        "President title transferred successfully. You are now a student in this server.",
+    )
+    return redirect("accounts:dashboard")

@@ -157,3 +157,27 @@ class JoinRequestDecisionForm(forms.Form):
         required=False,
         label="Returning member role",
     )
+
+
+class ServerSwitchForm(forms.Form):
+    """Select an authorized active server context."""
+
+    server_id = forms.IntegerField(min_value=1)
+
+
+class PresidentTransferForm(forms.Form):
+    """Confirm President title transfer with password re-authentication."""
+
+    target_membership_id = forms.IntegerField(
+        min_value=1,
+        label="Transfer to member",
+    )
+    password = forms.CharField(
+        label="Confirm your password",
+        widget=forms.PasswordInput(attrs={"autocomplete": "current-password"}),
+        strip=False,
+    )
+    confirm = forms.BooleanField(
+        label="I understand this permanently transfers President authority",
+        required=True,
+    )

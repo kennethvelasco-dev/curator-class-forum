@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Transfer President title — {{ server.name }}{% endblock %}
+
+{% block content %}
+<section class="account-page">
+    <div class="account-card">
+        <p class="eyebrow">President settings</p>
+        <h1>Transfer President title</h1>
+        <p class="account-intro">
+            You are transferring leadership of
+            <strong>{{ server.name }}</strong>
+            {% if server.section %}({{ server.section }}){% endif %}
+            to another active member. You will become a student in this server.
+            This action cannot be undone without another transfer.
+        </p>
+
+        {% if messages %}
+            <ul class="messages">
+                {% for message in messages %}
+                    <li class="{{ message.tags }}">{{ message }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
+        {% if not eligible_members %}
+            <p class="muted">There are no other active members available to receive the title.</p>
+            <p><a href="{% url 'accounts:dashboard' %}">Back to dashboard</a></p>
+        {% else %}
+            <form method="post" action="{% url 'servers:transfer_presidency' server.id %}">
+                {% csrf_token %}
+                {% if form.non_field_errors %}
+                    <div class="form-errors">{{ form.non_field_errors }}</div>
+                {% endif %}
+
+                <div class="form-field">
+                    <label for="id_target_membership_id">Transfer to member</label>
+                    <select name="target_membership_id" id="id_target_membership_id" required>
+                        <option value="">Select a member</option>
+                        {% for membership in eligible_members %}
+                            <option value="{{ membership.pk }}"
+                                {% if form.target_membership_id.value|stringformat:"s" == membership.pk|stringformat:"s" %}selected{% endif %}>
+                                {{ membership.user.full_name }} ({{ membership.get_role_display }})
+                            </option>
+                        {% endfor %}
+                    </select>
+                    {% if form.target_membership_id.errors %}
+                        <div class="field-errors">{{ form.target_membership_id.errors }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="form-field">
+                    <label for="id_password">Confirm your password</label>
+                    <input type="password" name="password" id="id_password" required autocomplete="current-password">
+                    {% if form.password.errors %}
+                        <div class="field-errors">{{ form.password.errors }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="form-field">
+                    <label>
+                        <input type="checkbox" name="confirm" id="id_confirm" required
+                            {% if form.confirm.value %}checked{% endif %}>
+                        I understand this permanently transfers President authority
+                    </label>
+                    {% if form.confirm.errors %}
+                        <div class="field-errors">{{ form.confirm.errors }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="form-actions">
+                    <button class="button" type="submit">Confirm transfer</button>
+                    <a class="button button-secondary" href="{% url 'accounts:dashboard' %}">Cancel</a>
+                </div>
+            </form>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}
