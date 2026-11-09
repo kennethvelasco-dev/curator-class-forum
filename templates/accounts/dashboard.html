@@ -5,6 +5,13 @@
 {% block content %}
 <section class="account-page">
     <div class="account-card">
+        {% if messages %}
+            <ul class="messages">
+                {% for message in messages %}
+                    <li class="{{ message.tags }}">{{ message }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
         <p class="eyebrow">Your account</p>
         <h1>Welcome, {{ request.user.full_name }}</h1>
         <dl class="account-details">
@@ -17,6 +24,44 @@
                 <dd>{{ request.user.email }}</dd>
             </div>
         </dl>
+
+        <h2 class="account-section-title">Your class servers</h2>
+        {% if memberships %}
+            <ul class="server-list">
+                {% for membership in memberships %}
+                    <li class="server-list-item{% if active_server and membership.server_id == active_server.pk %} is-active{% endif %}">
+                        <div>
+                            <strong>{{ membership.server.name }}</strong>
+                            {% if membership.server.section %}
+                                <span class="muted">({{ membership.server.section }})</span>
+                            {% endif %}
+                            <span class="role-badge">{{ membership.get_role_display }}</span>
+                        </div>
+                        {% if active_server and membership.server_id == active_server.pk %}
+                            <span class="current-server-label">Current</span>
+                        {% else %}
+                            <form method="post" action="{% url 'servers:switch_server' %}" class="inline-form">
+                                {% csrf_token %}
+                                <input type="hidden" name="server_id" value="{{ membership.server_id }}">
+                                <button class="button button-secondary" type="submit">Switch</button>
+                            </form>
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+            {% if active_server and is_president_of_active %}
+                <p class="account-intro">
+                    <a href="{% url 'servers:transfer_presidency' active_server.pk %}">
+                        Transfer President title for {{ active_server.name }}
+                    </a>
+                </p>
+            {% endif %}
+        {% else %}
+            <p class="account-intro muted">
+                You are not a member of any class server yet.
+            </p>
+        {% endif %}
+
         <p class="account-intro">
             <a href="{% url 'servers:server_request' %}">Request a class server</a>
         </p>

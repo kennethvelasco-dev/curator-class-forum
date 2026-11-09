@@ -29,7 +29,9 @@ from apps.accounts.tokens import (
     issue_email_verification_token,
     issue_registration_token,
 )
+from apps.servers.context import get_active_memberships, resolve_active_server
 from apps.servers.models import Membership, MembershipRole, MembershipStatus
+from apps.servers.permissions import is_active_president_of_server
 
 REGISTRATION_VERIFICATION_SESSION_KEY = "accounts.registration_verification"
 EMAIL_VERIFICATION_SESSION_KEY = "accounts.email_verification"
@@ -138,15 +140,25 @@ def registration_complete(request):
 
 @verified_required
 def dashboard(request):
-    has_active_president_membership = Membership.objects.filter(
-        user=request.user,
-        role=MembershipRole.PRESIDENT,
-        status=MembershipStatus.ACTIVE,
-    ).exists()
+    memberships = list(get_active_memberships(request.user))
+    active_server = resolve_active_server(request)
+    has_active_president_membership = any(
+        m.role == MembershipRole.PRESIDENT for m in memberships
+    )
+    is_president_of_active = (
+        is_active_president_of_server(request.user, active_server)
+        if active_server is not None
+        else False
+    )
     return render(
         request,
         "accounts/dashboard.html",
-        {"has_active_president_membership": has_active_president_membership},
+        {
+            "memberships": memberships,
+            "active_server": active_server,
+            "has_active_president_membership": has_active_president_membership,
+            "is_president_of_active": is_president_of_active,
+        },
     )
 
 
