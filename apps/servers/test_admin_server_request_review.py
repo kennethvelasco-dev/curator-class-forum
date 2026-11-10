@@ -113,8 +113,14 @@ class AdminServerRequestReviewTests(TestCase):
         )
 
     def test_non_admin_cannot_access_queue_or_decision_endpoint(self):
-        request_obj = self.create_request()
-        self.client.force_login(self.requester)
+        requester = User.objects.create_user(
+            email="nonadmin-requester@example.com",
+            password="TestPassword123",
+            full_name="Non Admin Requester",
+            is_email_verified=True,
+        )
+        request_obj = self.create_request(requester=requester)
+        self.client.force_login(requester)
 
         queue_response = self.client.get(self.url)
         decision_response = self.post_decision(
