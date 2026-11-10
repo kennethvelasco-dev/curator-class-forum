@@ -61,14 +61,46 @@ class AdminServerRequestReviewTests(TestCase):
         )
         self.url = reverse("servers:admin_server_request_queue")
 
+        self.storage_tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.storage_tempdir.cleanup)
+
+        storage_settings = override_settings(
+            PRIVATE_COR_STORAGE_ROOT=self.storage_tempdir.name,
+        )
+        storage_settings.enable()
+        self.addCleanup(storage_settings.disable)
+
+        self.storage = get_cor_storage()
+
+        self.stored_cor = self.storage.save(
+            "registration.pdf",
+            ContentFile(b"%PDF private CoR content"),
+        )
+
+        self.request_obj = ServerRequest.objects.create(
+            requester=self.requester,
+            proposed_name="Computer Science",
+            proposed_section="3A",
+            cor_file=self.stored_cor,
+        )
+
+        self.client.force_login(self.admin)
+
     def create_request(self, **kwargs):
         defaults = {
-            "requester": self.requester,
             "proposed_name": "Computer Science",
             "proposed_section": "3A",
             "cor_file": "private/example.pdf",
         }
         defaults.update(kwargs)
+        if "requester" not in defaults:
+            self._requester_counter = getattr(self, "_requester_counter", 0) + 1
+            defaults["requester"] = User.objects.create_user(
+                email=f"student{self._requester_counter}@example.com",
+                password="TestPassword123",
+                full_name="Test Student",
+                is_email_verified=True,
+            )
         return ServerRequest.objects.create(**defaults)
 
     def post_decision(self, request_obj, decision, reason="Reviewed"):
@@ -150,10 +182,10 @@ class AdminServerRequestReviewTests(TestCase):
         self.assertEqual(Server.objects.count(), 1)
         self.assertEqual(server.name, request_obj.proposed_name)
         self.assertEqual(server.section, request_obj.proposed_section)
-        self.assertEqual(server.created_by, self.requester)
+        self.assertEqual(server.created_by, request_obj.requester)
 
         membership = Membership.objects.get(server=server)
-        self.assertEqual(membership.user, self.requester)
+        self.assertEqual(membership.user, request_obj.requester)
         self.assertEqual(membership.role, MembershipRole.PRESIDENT)
         self.assertEqual(Channel.objects.filter(server=server).count(), 3)
         self.assertSetEqual(
@@ -349,7 +381,6 @@ class AdminServerRequestReviewTests(TestCase):
         self.assertEqual(Membership.objects.count(), 1)
         self.assertEqual(Channel.objects.count(), 3)
 
-
 class AdminServerRequestCleanupTests(TransactionTestCase):
     def setUp(self):
         self.storage_dir = tempfile.TemporaryDirectory()
@@ -511,6 +542,118 @@ class AdminServerRequestCleanupTests(TransactionTestCase):
         self.assertEqual(self.request_obj.cor_cleanup_attempts, 1)
         self.assertEqual(self.request_obj.cor_file, self.stored_cor)
         self.assertIsNone(self.request_obj.created_server_id)
+        self.assertEqual(Server.objects.count(), 0)
+        self.assertEqual(Membership.objects.count(), 0)
+        self.assertEqual(Channel.objects.count(), 0)
+
+
+class AdminServerRequestPhysicalDeletionTests(TransactionTestCase):
+    def setUp(self):
+        self.storage_tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.storage_tempdir.cleanup)
+
+        storage_settings = override_settings(
+            PRIVATE_COR_STORAGE_ROOT=self.storage_tempdir.name,
+        )
+        storage_settings.enable()
+        self.addCleanup(storage_settings.disable)
+
+        self.storage = get_cor_storage()
+        self.requester = User.objects.create_user(
+            email="student@example.com",
+            password="TestPassword123",
+            full_name="Test Student",
+            is_email_verified=True,
+        )
+        self.admin = User.objects.create_user(
+            email="admin@example.com",
+            password="TestPassword123",
+            full_name="Platform Admin",
+            is_staff=True,
+        )
+        self.client.force_login(self.admin)
+
+    def create_request(self, cor_file, **kwargs):
+        defaults = {
+            "requester": self.requester,
+            "proposed_name": "Computer Science",
+            "proposed_section": "3A",
+            "cor_file": cor_file,
+        }
+        defaults.update(kwargs)
+        return ServerRequest.objects.create(**defaults)
+
+    def post_decision(self, request_obj, decision, reason="Reviewed"):
+        return self.client.post(
+            reverse("servers:decide_server_request", args=[request_obj.pk]),
+            {
+                f"request-{request_obj.pk}-decision": decision,
+                f"request-{request_obj.pk}-decision_reason": reason,
+            },
+        )
+
+    def test_approval_physically_deletes_cor_file(self):
+        cor_name = self.storage.save(
+            "registration.pdf",
+            ContentFile(b"%PDF-1.4 CoR content for approval"),
+        )
+        self.assertTrue(self.storage.exists(cor_name))
+
+        request_obj = self.create_request(cor_file=cor_name)
+
+        response = self.post_decision(
+            request_obj,
+            RequestStatus.APPROVED,
+            "CoR verified and approved",
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("servers:admin_server_request_queue"),
+        )
+
+        request_obj.refresh_from_db()
+        self.assertEqual(request_obj.status, RequestStatus.APPROVED)
+        self.assertIsNone(request_obj.cor_file)
+        self.assertEqual(
+            request_obj.cor_cleanup_status,
+            CorCleanupStatus.COMPLETE,
+        )
+        self.assertFalse(self.storage.exists(cor_name))
+
+        self.assertEqual(Server.objects.count(), 1)
+        self.assertEqual(Membership.objects.count(), 1)
+        self.assertEqual(Channel.objects.count(), 3)
+
+    def test_rejection_physically_deletes_cor_file(self):
+        cor_name = self.storage.save(
+            "registration.pdf",
+            ContentFile(b"%PDF-1.4 CoR content for rejection"),
+        )
+        self.assertTrue(self.storage.exists(cor_name))
+
+        request_obj = self.create_request(cor_file=cor_name)
+
+        response = self.post_decision(
+            request_obj,
+            RequestStatus.REJECTED,
+            "The submitted CoR is unreadable",
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("servers:admin_server_request_queue"),
+        )
+
+        request_obj.refresh_from_db()
+        self.assertEqual(request_obj.status, RequestStatus.REJECTED)
+        self.assertIsNone(request_obj.cor_file)
+        self.assertEqual(
+            request_obj.cor_cleanup_status,
+            CorCleanupStatus.COMPLETE,
+        )
+        self.assertFalse(self.storage.exists(cor_name))
+
         self.assertEqual(Server.objects.count(), 0)
         self.assertEqual(Membership.objects.count(), 0)
         self.assertEqual(Channel.objects.count(), 0)
