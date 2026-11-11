@@ -8,7 +8,7 @@ from apps.servers.models import Membership, MembershipRole, MembershipStatus, Se
 
 
 def _parse_membership_id(raw):
-    """Accept only a positive integer or a digit-only string."""
+    """Accept only a positive integer or a digit-only ASCII string."""
     if isinstance(raw, bool) or raw is None:
         raise ValidationError({"target_membership_id": "Select a valid member."})
     if isinstance(raw, int):
@@ -16,8 +16,13 @@ def _parse_membership_id(raw):
             return raw
     elif isinstance(raw, str):
         value = raw.strip()
-        if value.isdigit() and int(value) > 0:
-            return int(value)
+        if value.isascii() and value.isdigit():
+            try:
+                parsed = int(value)
+                if parsed > 0:
+                    return parsed
+            except (ValueError, TypeError):
+                pass
     raise ValidationError({"target_membership_id": "Select a valid member."})
 
 
@@ -34,13 +39,19 @@ def change_member_role(
     acting_user,
     target_membership_id,
     new_role,
+    expected_role=None,
 ):
     """
     Promote a Student to Officer or demote an Officer to Student.
 
-    All authority and eligibility checks are repeated under locks. Only the
-    target membership's role is persisted, preserving its other fields.
-    Self-changes are rejected so a server retains an active President.
+    All authority and eligibility checks are repeated under locks. The lock
+    acquisition order is Server -> User -> Membership, which aligns with
+    join-request review to prevent deadlock cycles across shared resources.
+    Only the target membership's role is persisted, preserving its other
+    fields. Self-changes are rejected so a server retains an active President.
+
+    If ``expected_role`` is supplied, it is validated against the target's
+    current role under the lock to reject stale form submissions.
 
     Return ``(membership, changed)``; assigning the current Student or
     Officer role is a successful no-op and performs no Membership update.
@@ -75,6 +86,22 @@ def change_member_role(
         if not locked_server.is_active:
             raise ValidationError({"server": "This server is not active."})
 
+        # Validate acting President account eligibility under transaction.
+        user_model = get_user_model()
+        actor_state = (
+            user_model._default_manager.filter(pk=acting_user.pk)
+            .values("is_active", "is_email_verified")
+            .first()
+        )
+        if (
+            actor_state is None
+            or not actor_state["is_active"]
+            or not actor_state["is_email_verified"]
+        ):
+            raise ValidationError(
+                {"acting_user": "The President account is not eligible."}
+            )
+
         memberships = _locked_memberships()
         president_membership = memberships.filter(
             user_id=acting_user.pk,
@@ -96,6 +123,7 @@ def change_member_role(
                 pk=target_membership_id,
                 server=locked_server,
             )
+            .select_related("user")
             .first()
         )
         if target_membership is None:
@@ -139,30 +167,12 @@ def change_member_role(
                 {"target_membership_id": "The member has an invalid role."}
             )
 
-        user_model = get_user_model()
-        locked_users = {
-            user.pk: user
-            for user in (
-                user_model._default_manager.select_for_update()
-                .filter(pk__in=(acting_user.pk, target_membership.user_id))
-                .order_by("pk")
-            )
-        }
-        locked_actor = locked_users.get(acting_user.pk)
-        target_user = locked_users.get(target_membership.user_id)
-        if (
-            locked_actor is None
-            or not locked_actor.is_active
-            or not locked_actor.is_email_verified
-        ):
-            raise ValidationError(
-                {"acting_user": "The President account is not eligible."}
-            )
-        if target_user is None or not target_user.is_active:
+        target_user = target_membership.user
+        if not getattr(target_user, "is_active", False):
             raise ValidationError(
                 {"target_membership_id": "The selected account is not active."}
             )
-        if not target_user.is_email_verified:
+        if not getattr(target_user, "is_email_verified", False):
             raise ValidationError(
                 {
                     "target_membership_id": (
@@ -170,6 +180,18 @@ def change_member_role(
                     )
                 }
             )
+
+        if expected_role:
+            expected_role_norm = expected_role.strip().lower()
+            if target_membership.role != expected_role_norm:
+                raise ValidationError(
+                    {
+                        "expected_role": (
+                            "The member's role has changed since you loaded this page. "
+                            "Please refresh and try again."
+                        )
+                    }
+                )
 
         if target_membership.role == new_role:
             return target_membership, False

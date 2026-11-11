@@ -31,6 +31,12 @@
                                 class="inline-form"
                             >
                                 {% csrf_token %}
+                                <input
+                                    type="hidden"
+                                    name="{{ row.role_form.expected_role.html_name }}"
+                                    value="{{ row.membership.role }}"
+                                    id="{{ row.role_form.expected_role.id_for_label }}-{{ row.membership.pk }}"
+                                >
                                 <label for="{{ row.role_form.new_role.id_for_label }}-{{ row.membership.pk }}">
                                     Change role
                                 </label>

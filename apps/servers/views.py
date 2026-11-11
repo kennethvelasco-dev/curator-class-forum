@@ -538,7 +538,10 @@ def server_member_list(request, server_id):
         {
             "membership": membership,
             "role_form": MembershipRoleChangeForm(
-                initial={"new_role": membership.role}
+                initial={
+                    "new_role": membership.role,
+                    "expected_role": membership.role,
+                }
             ),
             "can_change_role": (
                 can_manage_roles
@@ -581,12 +584,14 @@ def change_member_role_view(request, server_id, membership_id):
             {"server": server, "form": form},
             status=400,
         )
+    expected_role = form.cleaned_data.get("expected_role") or None
     try:
         _, changed = change_member_role(
             server=server,
             acting_user=request.user,
             target_membership_id=membership_id,
             new_role=form.cleaned_data["new_role"],
+            expected_role=expected_role,
         )
     except ValidationError as error:
         if hasattr(error, "message_dict"):

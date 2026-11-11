@@ -16,13 +16,16 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from apps.servers.models import (
+    JoinRequest,
     Membership,
     MembershipRole,
     MembershipStatus,
     MembershipSubject,
+    RequestStatus,
     Server,
 )
 from apps.servers.services.roles import change_member_role
+from apps.servers.services.server_requests import decide_join_request
 from apps.servers.services.transfer import transfer_presidency
 
 
@@ -194,6 +197,78 @@ class MemberRoleServiceTests(TestCase):
 
                 self.student_membership.refresh_from_db()
                 self.assertEqual(self.student_membership.role, MembershipRole.STUDENT)
+
+    def test_unicode_and_malformed_membership_ids_raise_validation_error(self):
+        invalid_ids = (
+            "²",
+            "³",
+            "\u0661\u0662",
+            "¹²³",
+            "½",
+            "0",
+            "-5",
+            None,
+            True,
+            False,
+            "abc",
+            "",
+            "   ",
+        )
+        for raw_id in invalid_ids:
+            with self.subTest(raw_id=raw_id):
+                with self.assertRaises(ValidationError) as ctx:
+                    change_member_role(
+                        server=self.server,
+                        acting_user=self.president,
+                        target_membership_id=raw_id,
+                        new_role=MembershipRole.OFFICER,
+                    )
+                self.assertIn("target_membership_id", ctx.exception.message_dict)
+
+    def test_stale_role_change_submission_rejected(self):
+        # Stale promotion: form thought target was student, but target is already officer
+        self.student_membership.role = MembershipRole.OFFICER
+        self.student_membership.save(update_fields=["role"])
+
+        with self.assertRaises(ValidationError) as ctx:
+            change_member_role(
+                server=self.server,
+                acting_user=self.president,
+                target_membership_id=self.student_membership.pk,
+                new_role=MembershipRole.OFFICER,
+                expected_role="student",
+            )
+        self.assertIn("expected_role", ctx.exception.message_dict)
+        self.student_membership.refresh_from_db()
+        self.assertEqual(self.student_membership.role, MembershipRole.OFFICER)
+
+        # Stale demotion: form thought target was officer, but target is already student
+        self.student_membership.role = MembershipRole.STUDENT
+        self.student_membership.save(update_fields=["role"])
+
+        with self.assertRaises(ValidationError) as ctx:
+            change_member_role(
+                server=self.server,
+                acting_user=self.president,
+                target_membership_id=self.student_membership.pk,
+                new_role=MembershipRole.STUDENT,
+                expected_role="officer",
+            )
+        self.assertIn("expected_role", ctx.exception.message_dict)
+        self.student_membership.refresh_from_db()
+        self.assertEqual(self.student_membership.role, MembershipRole.STUDENT)
+
+    def test_valid_expected_role_succeeds(self):
+        updated, changed = change_member_role(
+            server=self.server,
+            acting_user=self.president,
+            target_membership_id=self.student_membership.pk,
+            new_role=MembershipRole.OFFICER,
+            expected_role="student",
+        )
+        self.assertTrue(changed)
+        self.student_membership.refresh_from_db()
+        self.assertEqual(self.student_membership.role, MembershipRole.OFFICER)
 
     def test_target_must_be_active_and_verified(self):
         for field, value in (("is_active", False), ("is_email_verified", False)):
@@ -689,6 +764,53 @@ class MemberRoleViewTests(TestCase):
         self.assertContains(response, self.student.full_name)
         self.assertNotContains(response, 'name="new_role"')
 
+    def test_stale_promotion_post_rejected(self):
+        # Target is already officer in database
+        self.student_membership.role = MembershipRole.OFFICER
+        self.student_membership.save(update_fields=["role"])
+
+        response = self.client.post(
+            self.role_url,
+            {"expected_role": "student", "new_role": MembershipRole.OFFICER},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.student_membership.refresh_from_db()
+        self.assertEqual(self.student_membership.role, MembershipRole.OFFICER)
+
+    def test_stale_demotion_post_rejected(self):
+        # Target is already student in database
+        self.student_membership.role = MembershipRole.STUDENT
+        self.student_membership.save(update_fields=["role"])
+
+        response = self.client.post(
+            self.role_url,
+            {"expected_role": "officer", "new_role": MembershipRole.STUDENT},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.student_membership.refresh_from_db()
+        self.assertEqual(self.student_membership.role, MembershipRole.STUDENT)
+
+    def test_matching_expected_role_post_succeeds(self):
+        response = self.client.post(
+            self.role_url,
+            {"expected_role": "student", "new_role": MembershipRole.OFFICER},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertRedirects(response, self.list_url)
+        self.student_membership.refresh_from_db()
+        self.assertEqual(self.student_membership.role, MembershipRole.OFFICER)
+
+    def test_member_list_renders_hidden_expected_role_input(self):
+        response = self.client.get(self.list_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="expected_role"')
+        self.assertContains(response, 'value="student"')
+
 
 class MemberRoleTransferConcurrencyTests(TransactionTestCase):
     reset_sequences = True
@@ -759,3 +881,157 @@ class MemberRoleTransferConcurrencyTests(TransactionTestCase):
             ).count(),
             1,
         )
+
+    @skipUnless(
+        connection.vendor == "postgresql",
+        "PostgreSQL row-lock concurrency is not verified on this database.",
+    )
+    def test_concurrent_role_change_and_decide_join_request_no_deadlock(self):
+        applicant = create_user("applicant@example.com")
+        join_request = JoinRequest.objects.create(
+            user=applicant,
+            server=self.server,
+            student_number="2024-00001",
+            status=RequestStatus.PENDING,
+        )
+        barrier = Barrier(2)
+
+        def run_role_change():
+            connections.close_all()
+            try:
+                barrier.wait(timeout=10)
+                return change_member_role(
+                    server=self.server,
+                    acting_user=self.president,
+                    target_membership_id=self.target_membership.pk,
+                    new_role=MembershipRole.OFFICER,
+                )
+            finally:
+                connections.close_all()
+
+        def run_join_decision():
+            connections.close_all()
+            try:
+                barrier.wait(timeout=10)
+                return decide_join_request(
+                    request_id=join_request.pk,
+                    reviewer=self.president,
+                    decision=RequestStatus.APPROVED,
+                    decision_reason="Approved applicant",
+                    membership_role=MembershipRole.STUDENT,
+                )
+            finally:
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            role_future = executor.submit(run_role_change)
+            join_future = executor.submit(run_join_decision)
+            outcomes = []
+            for future in (role_future, join_future):
+                try:
+                    outcomes.append(future.result(timeout=30))
+                except ValidationError:
+                    outcomes.append("revalidated-and-rejected")
+
+        self.assertEqual(len(outcomes), 2)
+        # Both operations succeed without any PostgreSQL deadlock
+        self.target_membership.refresh_from_db()
+        join_request.refresh_from_db()
+        self.assertEqual(self.target_membership.role, MembershipRole.OFFICER)
+        self.assertEqual(join_request.status, RequestStatus.APPROVED)
+        self.assertTrue(
+            Membership.objects.filter(
+                user=applicant,
+                server=self.server,
+                role=MembershipRole.STUDENT,
+                status=MembershipStatus.ACTIVE,
+            ).exists()
+        )
+
+    @skipUnless(
+        connection.vendor == "postgresql",
+        "PostgreSQL row-lock concurrency is not verified on this database.",
+    )
+    def test_concurrent_role_change_and_decide_join_request_same_target_no_deadlock(self):
+        join_request = JoinRequest.objects.create(
+            user=self.target,
+            server=self.server,
+            student_number="2024-00002",
+            status=RequestStatus.PENDING,
+        )
+        barrier = Barrier(2)
+
+        def run_role_change():
+            connections.close_all()
+            try:
+                barrier.wait(timeout=10)
+                return change_member_role(
+                    server=self.server,
+                    acting_user=self.president,
+                    target_membership_id=self.target_membership.pk,
+                    new_role=MembershipRole.OFFICER,
+                )
+            finally:
+                connections.close_all()
+
+        def run_join_decision():
+            connections.close_all()
+            try:
+                barrier.wait(timeout=10)
+                return decide_join_request(
+                    request_id=join_request.pk,
+                    reviewer=self.president,
+                    decision=RequestStatus.APPROVED,
+                    decision_reason="Approved duplicate target request",
+                    membership_role=MembershipRole.STUDENT,
+                )
+            finally:
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            role_future = executor.submit(run_role_change)
+            join_future = executor.submit(run_join_decision)
+            outcomes = []
+            for future in (role_future, join_future):
+                try:
+                    outcomes.append(future.result(timeout=30))
+                except ValidationError:
+                    outcomes.append("revalidated-and-rejected")
+
+        self.assertEqual(len(outcomes), 2)
+        # Neither operation raised an unhandled database deadlock (OperationalError/DeadlockDetected)
+        self.target_membership.refresh_from_db()
+        self.assertEqual(self.target_membership.role, MembershipRole.OFFICER)
+
+    def test_sequential_role_change_and_decide_join_request(self):
+        join_request = JoinRequest.objects.create(
+            user=self.target,
+            server=self.server,
+            student_number="2024-00001",
+            status=RequestStatus.PENDING,
+        )
+        # Demote target to LEFT so decide_join_request for returning member can run
+        self.target_membership.status = MembershipStatus.LEFT
+        self.target_membership.save(update_fields=["status"])
+
+        decide_join_request(
+            request_id=join_request.pk,
+            reviewer=self.president,
+            decision=RequestStatus.APPROVED,
+            decision_reason="Reactivated member",
+            membership_role=MembershipRole.STUDENT,
+        )
+        self.target_membership.refresh_from_db()
+        self.assertEqual(self.target_membership.status, MembershipStatus.ACTIVE)
+        self.assertEqual(self.target_membership.role, MembershipRole.STUDENT)
+
+        updated, changed = change_member_role(
+            server=self.server,
+            acting_user=self.president,
+            target_membership_id=self.target_membership.pk,
+            new_role=MembershipRole.OFFICER,
+            expected_role="student",
+        )
+        self.assertTrue(changed)
+        self.target_membership.refresh_from_db()
+        self.assertEqual(self.target_membership.role, MembershipRole.OFFICER)

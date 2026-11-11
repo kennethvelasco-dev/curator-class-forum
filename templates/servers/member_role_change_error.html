@@ -13,6 +13,9 @@
         {% if form.new_role.errors %}
             <div class="field-errors">{{ form.new_role.errors }}</div>
         {% endif %}
+        {% if form.expected_role.errors %}
+            <div class="field-errors">{{ form.expected_role.errors }}</div>
+        {% endif %}
         <p class="account-intro">
             <a href="{% url 'servers:server_member_list' server.pk %}">
                 Return to server members

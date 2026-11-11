@@ -186,6 +186,10 @@ class PresidentTransferForm(forms.Form):
 class MembershipRoleChangeForm(forms.Form):
     """Choose only the Student or Officer role for a server member."""
 
+    expected_role = forms.CharField(
+        widget=forms.HiddenInput(),
+        required=False,
+    )
     new_role = forms.ChoiceField(
         choices=(
             ("", "Select a role"),
@@ -194,3 +198,7 @@ class MembershipRoleChangeForm(forms.Form):
         ),
         label="New role",
     )
+
+    def clean_expected_role(self):
+        val = self.cleaned_data.get("expected_role") or self.data.get("current_role") or ""
+        return val.strip().lower()
