@@ -35,6 +35,16 @@ urlpatterns = [
     ),
     path("switch/", views.switch_server, name="switch_server"),
     path(
+        "<int:server_id>/members/",
+        views.server_member_list,
+        name="server_member_list",
+    ),
+    path(
+        "<int:server_id>/members/<int:membership_id>/role/",
+        views.change_member_role_view,
+        name="change_member_role",
+    ),
+    path(
         "<int:server_id>/transfer-presidency/",
         views.transfer_presidency_view,
         name="transfer_presidency",

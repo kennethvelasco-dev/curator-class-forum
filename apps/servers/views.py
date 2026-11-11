@@ -8,13 +8,18 @@ from django.db import DatabaseError
 from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.cache import never_cache
-from django.views.decorators.http import require_http_methods, require_POST
+from django.views.decorators.http import (
+    require_GET,
+    require_http_methods,
+    require_POST,
+)
 
 from apps.accounts.decorators import admin_required, verified_required
 from apps.servers.context import set_active_server
 from apps.servers.forms import (
     JoinRequestDecisionForm,
     JoinRequestForm,
+    MembershipRoleChangeForm,
     PresidentTransferForm,
     ServerRequestDecisionForm,
     ServerRequestForm,
@@ -30,13 +35,17 @@ from apps.servers.models import (
     Server,
     ServerRequest,
 )
-from apps.servers.permissions import is_active_president_of_server
+from apps.servers.permissions import (
+    can_view_server_member_list,
+    is_active_president_of_server,
+)
 from apps.servers.services.server_requests import (
     create_join_request,
     create_server_request,
     decide_join_request,
     decide_server_request,
 )
+from apps.servers.services.roles import change_member_role
 from apps.servers.services.transfer import transfer_presidency
 from apps.servers.storage import delete_cor, get_cor_storage
 
@@ -502,6 +511,120 @@ def switch_server(request):
             "You do not have an active membership in that server.",
         )
     return redirect("accounts:dashboard")
+
+
+@never_cache
+@verified_required
+@require_GET
+def server_member_list(request, server_id):
+    """Show active server members to its active President or Officers."""
+    server = get_object_or_404(Server, pk=server_id, is_active=True)
+    if not request.user.is_active or not can_view_server_member_list(
+        request.user,
+        server,
+    ):
+        raise Http404
+
+    memberships = (
+        Membership.objects.filter(
+            server=server,
+            status=MembershipStatus.ACTIVE,
+        )
+        .select_related("user")
+        .order_by("user__full_name", "pk")
+    )
+    can_manage_roles = is_active_president_of_server(request.user, server)
+    member_rows = [
+        {
+            "membership": membership,
+            "role_form": MembershipRoleChangeForm(
+                initial={"new_role": membership.role}
+            ),
+            "can_change_role": (
+                can_manage_roles
+                and membership.user_id != request.user.pk
+                and membership.role
+                in (MembershipRole.STUDENT, MembershipRole.OFFICER)
+                and membership.user.is_active
+                and membership.user.is_email_verified
+            ),
+        }
+        for membership in memberships
+    ]
+    return render(
+        request,
+        "servers/member_list.html",
+        {
+            "server": server,
+            "member_rows": member_rows,
+        },
+    )
+
+
+@never_cache
+@verified_required
+@require_POST
+def change_member_role_view(request, server_id, membership_id):
+    """Change one member's role after server-scoped President authorization."""
+    server = get_object_or_404(Server, pk=server_id, is_active=True)
+    if (
+        not request.user.is_active
+        or not is_active_president_of_server(request.user, server)
+    ):
+        raise Http404
+
+    form = MembershipRoleChangeForm(request.POST)
+    if not form.is_valid():
+        return render(
+            request,
+            "servers/member_role_change_error.html",
+            {"server": server, "form": form},
+            status=400,
+        )
+    try:
+        _, changed = change_member_role(
+            server=server,
+            acting_user=request.user,
+            target_membership_id=membership_id,
+            new_role=form.cleaned_data["new_role"],
+        )
+    except ValidationError as error:
+        if hasattr(error, "message_dict"):
+            for field, errors in error.message_dict.items():
+                if field in form.fields:
+                    for message in errors:
+                        form.add_error(field, message)
+                else:
+                    form.add_error(None, errors)
+        else:
+            form.add_error(None, error.messages)
+        return render(
+            request,
+            "servers/member_role_change_error.html",
+            {"server": server, "form": form},
+            status=400,
+        )
+    except DatabaseError as error:
+        logger.error(
+            "Member role change failed (exception type %s).",
+            type(error).__name__,
+        )
+        form.add_error(
+            None,
+            "We could not update this member's role. Please try again.",
+        )
+        return render(
+            request,
+            "servers/member_role_change_error.html",
+            {"server": server, "form": form},
+            status=503,
+        )
+
+    if changed:
+        messages.success(request, "The member's role was updated.")
+    else:
+        messages.info(request, "The member already has that role.")
+    return redirect("servers:server_member_list", server_id=server.pk)
 
 
 @never_cache

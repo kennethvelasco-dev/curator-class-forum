@@ -37,6 +37,11 @@
                             {% endif %}
                             <span class="role-badge">{{ membership.get_role_display }}</span>
                         </div>
+                        {% if membership.role == "president" or membership.role == "officer" %}
+                            <a href="{% url 'servers:server_member_list' membership.server_id %}">
+                                View members
+                            </a>
+                        {% endif %}
                         {% if active_server and membership.server_id == active_server.pk %}
                             <span class="current-server-label">Current</span>
                         {% else %}

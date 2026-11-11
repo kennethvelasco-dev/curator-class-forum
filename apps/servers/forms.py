@@ -181,3 +181,16 @@ class PresidentTransferForm(forms.Form):
         label="I understand this permanently transfers President authority",
         required=True,
     )
+
+
+class MembershipRoleChangeForm(forms.Form):
+    """Choose only the Student or Officer role for a server member."""
+
+    new_role = forms.ChoiceField(
+        choices=(
+            ("", "Select a role"),
+            ("student", "Student"),
+            ("officer", "Officer"),
+        ),
+        label="New role",
+    )
