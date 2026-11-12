@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Members — {{ server.name }}{% endblock %}
+
+{% block content %}
+<section class="account-page">
+    <div class="account-card">
+        <p class="eyebrow">{{ server.name }}{% if server.section %} ({{ server.section }}){% endif %}</p>
+        <h1>Server members</h1>
+
+        {% if messages %}
+            <ul class="messages">
+                {% for message in messages %}
+                    <li class="{{ message.tags }}">{{ message }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
+        {% if member_rows %}
+            <ul class="server-list">
+                {% for row in member_rows %}
+                    <li class="server-list-item">
+                        <div>
+                            <strong>{{ row.membership.user.full_name }}</strong>
+                            <span class="role-badge">{{ row.membership.get_role_display }}</span>
+                        </div>
+                        {% if row.can_change_role %}
+                            <form
+                                method="post"
+                                action="{% url 'servers:change_member_role' server.pk row.membership.pk %}"
+                                class="inline-form"
+                            >
+                                {% csrf_token %}
+                                <input
+                                    type="hidden"
+                                    name="{{ row.role_form.expected_role.html_name }}"
+                                    value="{{ row.membership.role }}"
+                                    id="{{ row.role_form.expected_role.id_for_label }}-{{ row.membership.pk }}"
+                                >
+                                <label for="{{ row.role_form.new_role.id_for_label }}-{{ row.membership.pk }}">
+                                    Change role
+                                </label>
+                                <select
+                                    name="{{ row.role_form.new_role.html_name }}"
+                                    id="{{ row.role_form.new_role.id_for_label }}-{{ row.membership.pk }}"
+                                >
+                                    {% for value, label in row.role_form.new_role.field.choices %}
+                                        <option value="{{ value }}"
+                                            {% if row.membership.role == value %}selected{% endif %}>
+                                            {{ label }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                                <button class="button button-secondary" type="submit">
+                                    Update
+                                </button>
+                            </form>
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="muted">There are no active members in this server.</p>
+        {% endif %}
+
+        <p class="account-intro">
+            <a href="{% url 'accounts:dashboard' %}">Back to dashboard</a>
+        </p>
+    </div>
+</section>
+{% endblock %}

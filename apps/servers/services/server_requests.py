@@ -4,7 +4,7 @@ import re
 import sqlite3
 
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import connection, IntegrityError, transaction
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -438,11 +438,18 @@ def decide_join_request(
         raise ValidationError({"decision_reason": "A reason is required."})
 
     with transaction.atomic():
-        request_obj = (
-            JoinRequest.objects.select_for_update()
-            .select_related("server", "user")
-            .get(pk=request_id)
-        )
+        if getattr(connection.features, "has_select_for_update_of", False):
+            request_obj = (
+                JoinRequest.objects.select_for_update(of=("self",))
+                .select_related("server", "user")
+                .get(pk=request_id)
+            )
+        else:
+            request_obj = (
+                JoinRequest.objects.select_for_update()
+                .select_related("server", "user")
+                .get(pk=request_id)
+            )
         if request_obj.status != RequestStatus.PENDING:
             raise ValidationError({"status": "This request has already been decided."})
         if not is_active_president_of_server(reviewer, request_obj.server):

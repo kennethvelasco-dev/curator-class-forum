@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}Role not updated — {{ server.name }}{% endblock %}
+
+{% block content %}
+<section class="account-page">
+    <div class="account-card">
+        <p class="eyebrow">{{ server.name }}</p>
+        <h1>Role not updated</h1>
+        {% if form.non_field_errors %}
+            <div class="form-errors">{{ form.non_field_errors }}</div>
+        {% endif %}
+        {% if form.new_role.errors %}
+            <div class="field-errors">{{ form.new_role.errors }}</div>
+        {% endif %}
+        {% if form.expected_role.errors %}
+            <div class="field-errors">{{ form.expected_role.errors }}</div>
+        {% endif %}
+        <p class="account-intro">
+            <a href="{% url 'servers:server_member_list' server.pk %}">
+                Return to server members
+            </a>
+        </p>
+    </div>
+</section>
+{% endblock %}
