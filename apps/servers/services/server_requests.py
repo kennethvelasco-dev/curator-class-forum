@@ -1,6 +1,5 @@
 """Creation and decision services for server and join requests."""
 
-import re
 import sqlite3
 
 from django.core.exceptions import ValidationError
@@ -25,6 +24,7 @@ from apps.servers.models import (
 )
 from apps.servers.permissions import is_active_president_of_server
 from apps.servers.services.cor_cleanup import attempt_cor_cleanup
+from apps.servers.subject_codes import SubjectCodeError, canonicalize_subject_code
 
 
 _DEFAULT_CHANNELS = (
@@ -291,20 +291,46 @@ def decide_server_request(
 
 
 def _normalize_subject_entry(value):
-    if not isinstance(value, str):
-        raise ValidationError({"subjects": "Subject entries must be text."})
-    text = (value or "").strip()
-    if not text:
-        raise ValidationError({"subjects": "A subject entry is required."})
-    normalized = re.sub(r"\s+", " ", text)
-    if len(normalized) > 64:
+    """Apply the canonical subject-code contract; map errors to ValidationError."""
+    try:
+        return canonicalize_subject_code(value)
+    except SubjectCodeError as exc:
+        raise ValidationError({"subjects": str(exc)}) from None
+
+
+def _canonicalize_persisted_subject_codes(persisted_codes):
+    """Validate JoinRequestSubject codes at approval time.
+
+    Canonicalize every value, reject case-insensitive duplicates, and preserve
+    the capitalization of the first occurrence. Does not modify the source
+    JoinRequestSubject rows. Raises ValidationError on any contract violation.
+    """
+    approved = []
+    seen = set()
+    for raw in persisted_codes:
+        try:
+            value = canonicalize_subject_code(raw)
+        except SubjectCodeError as exc:
+            raise ValidationError({"subjects": str(exc)}) from None
+        key = value.casefold()
+        if key in seen:
+            raise ValidationError(
+                {"subjects": "Duplicate subject entries are not allowed."}
+            )
+        seen.add(key)
+        approved.append(value)
+    if not approved:
         raise ValidationError(
-            {"subjects": "Each subject entry must be 64 characters or fewer."}
+            {"subjects": "At least one subject code is required."}
         )
-    return normalized
+    return approved
 
 
 def _normalize_subject_entries(subjects):
+    """Split, canonicalize, and case-insensitively de-duplicate subject codes.
+
+    Capitalization of the first occurrence of each distinct code is preserved.
+    """
     def split_entries(text):
         normalized_newlines = text.replace("\r\n", "\n").replace("\r", "\n")
         return [
@@ -336,7 +362,7 @@ def _normalize_subject_entries(subjects):
         normalized.append(value)
     if not normalized:
         raise ValidationError(
-            {"subjects": "At least one subject or section entry is required."}
+            {"subjects": "At least one subject code is required."}
         )
     return normalized
 
@@ -522,12 +548,17 @@ def decide_join_request(
                     )
                 )
 
-            approved_subjects = list(
+            # Validate persisted subject codes against the canonical contract
+            # before any MembershipSubject mutation. Do not rewrite
+            # JoinRequestSubject rows; reject invalid/duplicate data.
+            persisted_codes = list(
                 JoinRequestSubject.objects.filter(join_request=request_obj).values_list(
                     "subject_code",
                     flat=True,
                 )
             )
+            approved_subjects = _canonicalize_persisted_subject_codes(persisted_codes)
+
             MembershipSubject.objects.filter(membership=target_membership).delete()
             if approved_subjects:
                 MembershipSubject.objects.bulk_create(

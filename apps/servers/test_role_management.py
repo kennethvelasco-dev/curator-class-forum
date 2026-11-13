@@ -17,6 +17,7 @@ from django.urls import reverse
 
 from apps.servers.models import (
     JoinRequest,
+    JoinRequestSubject,
     Membership,
     MembershipRole,
     MembershipStatus,
@@ -894,6 +895,12 @@ class MemberRoleTransferConcurrencyTests(TransactionTestCase):
             student_number="2024-00001",
             status=RequestStatus.PENDING,
         )
+        # A join request approved for membership must carry at least one
+        # persisted subject code (validated again at approval time).
+        JoinRequestSubject.objects.create(
+            join_request=join_request,
+            subject_code="CS 201",
+        )
         barrier = Barrier(2)
 
         def run_role_change():
@@ -959,6 +966,12 @@ class MemberRoleTransferConcurrencyTests(TransactionTestCase):
             student_number="2024-00002",
             status=RequestStatus.PENDING,
         )
+        # A join request approved for membership must carry at least one
+        # persisted subject code (validated again at approval time).
+        JoinRequestSubject.objects.create(
+            join_request=join_request,
+            subject_code="CS 201",
+        )
         barrier = Barrier(2)
 
         def run_role_change():
@@ -1002,6 +1015,10 @@ class MemberRoleTransferConcurrencyTests(TransactionTestCase):
         # Neither operation raised an unhandled database deadlock (OperationalError/DeadlockDetected)
         self.target_membership.refresh_from_db()
         self.assertEqual(self.target_membership.role, MembershipRole.OFFICER)
+        # The target user already holds an active membership, so the join
+        # approval is rejected and the request remains pending.
+        join_request.refresh_from_db()
+        self.assertEqual(join_request.status, RequestStatus.PENDING)
 
     def test_sequential_role_change_and_decide_join_request(self):
         join_request = JoinRequest.objects.create(
@@ -1009,6 +1026,12 @@ class MemberRoleTransferConcurrencyTests(TransactionTestCase):
             server=self.server,
             student_number="2024-00001",
             status=RequestStatus.PENDING,
+        )
+        # A join request approved for membership must carry at least one
+        # persisted subject code (validated again at approval time).
+        JoinRequestSubject.objects.create(
+            join_request=join_request,
+            subject_code="CS 201",
         )
         # Demote target to LEFT so decide_join_request for returning member can run
         self.target_membership.status = MembershipStatus.LEFT
