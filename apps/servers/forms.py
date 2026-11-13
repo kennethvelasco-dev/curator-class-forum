@@ -3,6 +3,11 @@
 from django import forms
 
 from apps.servers.models import Server
+from apps.servers.subject_codes import (
+    SUBJECT_CODE_MAX_LENGTH,
+    SubjectCodeError,
+    canonicalize_subject_code,
+)
 from apps.servers.validators import validate_cor_file
 
 
@@ -49,7 +54,15 @@ class JoinRequestForm(forms.Form):
         strip=True,
     )
     subject_entries = forms.CharField(
-        label="Subject / section",
+        label="Subject codes",
+        help_text=(
+            "Enter one subject code per line (or separate codes with commas). "
+            "Each entry is normalized (leading/trailing spaces removed; internal "
+            "whitespace collapsed) and must be non-empty, at most "
+            f"{SUBJECT_CODE_MAX_LENGTH} characters, and contain only printable "
+            "characters. Official subject codes from your Certificate of "
+            "Registration are recommended."
+        ),
         strip=False,
         widget=forms.Textarea(attrs={"rows": 3}),
     )
@@ -88,21 +101,25 @@ class JoinRequestForm(forms.Form):
         return value
 
     def clean_subject_entries(self):
+        """Parse, canonicalize, and de-duplicate subject codes.
+
+        Every token produced by newline/comma splitting is validated — empty
+        tokens from trailing newlines, blank lines, or repeated commas are
+        rejected, not discarded. Case-insensitive duplicate detection is
+        applied after canonicalization so that capitalization of the first
+        occurrence is preserved.
+        """
         raw_value = self.cleaned_data.get("subject_entries") or ""
         entries = []
         seen = set()
         normalized_newlines = raw_value.replace("\r\n", "\n").replace("\r", "\n")
         for entry in normalized_newlines.split("\n"):
             for item in entry.split(","):
-                candidate = " ".join((item or "").split()).strip()
-                if not candidate:
-                    raise forms.ValidationError(
-                        "Blank subject or section entries are not allowed."
-                    )
-                if len(candidate) > 64:
-                    raise forms.ValidationError(
-                        "Each subject or section entry must be 64 characters or fewer."
-                    )
+                # Do not skip empty/whitespace tokens — canonicalize rejects them.
+                try:
+                    candidate = canonicalize_subject_code(item)
+                except SubjectCodeError as exc:
+                    raise forms.ValidationError(str(exc)) from None
                 key = candidate.casefold()
                 if key in seen:
                     raise forms.ValidationError(
@@ -112,7 +129,7 @@ class JoinRequestForm(forms.Form):
                 entries.append(candidate)
         if not entries:
             raise forms.ValidationError(
-                "At least one subject or section entry is required."
+                "At least one subject code is required."
             )
         return entries
 
