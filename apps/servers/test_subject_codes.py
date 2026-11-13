@@ -93,21 +93,15 @@ class CanonicalizeSubjectCodeTests(TestCase):
     def test_rejects_non_printable(self):
         for raw in (
             "CS\x00101",
-            "CS\n101",  # newline survives only if not collapsed by split; after split it becomes space, but control still rejected if embedded
-            "CS\x07101",
+            "CS\n101",  # newline is non-printable; rejected before normalization
+            "CS\t101",  # tab is non-printable; rejected before normalization
+            "CS\r101",  # carriage return is non-printable; rejected before normalization
+            "CS\x07101",  # control character is non-printable
             "CS\u200b101",  # zero-width space is not printable
         ):
-            # Note: "CS\n101".split() collapses newline to space → "CS 101" which is valid.
-            # Only truly non-printable *remaining* characters after whitespace collapse fail.
-            if "\n" in raw:
-                # After collapse this becomes valid; skip as non-printable test.
-                continue
             with self.subTest(raw=repr(raw)):
                 with self.assertRaises(SubjectCodeError):
                     canonicalize_subject_code(raw)
-
-    def test_newline_collapses_to_space_and_is_accepted(self):
-        self.assertEqual(canonicalize_subject_code("CS\n101"), "CS 101")
 
     def test_subject_code_error_is_value_error(self):
         self.assertTrue(issubclass(SubjectCodeError, ValueError))

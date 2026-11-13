@@ -6,12 +6,14 @@ future channel subject access.
 
 Rules (must remain stable):
 - Reject non-string inputs.
+- Reject non-printable characters (including control characters) in the raw input
+  before whitespace normalization, so tabs, newlines, carriage returns, and
+  zero-width spaces are never silently collapsed into spaces.
 - Strip leading and trailing whitespace.
 - Collapse internal whitespace into a single ASCII space.
 - Preserve capitalization of the remaining characters.
 - Reject empty results after normalization.
 - Reject values longer than SUBJECT_CODE_MAX_LENGTH after normalization.
-- Reject any non-printable character (including control characters).
 """
 
 from __future__ import annotations
@@ -28,9 +30,21 @@ def canonicalize_subject_code(raw) -> str:
 
     Returns the canonical string on success.
     Raises SubjectCodeError (a ValueError subclass) on any contract violation.
+
+    Non-printable characters are rejected in the raw input *before* any
+    whitespace normalization, so tabs, newlines, carriage returns, control
+    characters, and zero-width spaces are never silently collapsed into spaces.
     """
     if not isinstance(raw, str):
         raise SubjectCodeError("Subject code must be a string.")
+
+    # Reject non-printable characters in the raw input before whitespace
+    # normalization. Space (U+0020) is printable; tabs, newlines, carriage
+    # returns, control characters, and zero-width spaces are not.
+    if any(not ch.isprintable() for ch in raw):
+        raise SubjectCodeError(
+            "Subject code may not contain non-printable characters."
+        )
 
     # Strip ends, then collapse any run of whitespace to a single ASCII space.
     normalized = " ".join(raw.split())
@@ -41,14 +55,6 @@ def canonicalize_subject_code(raw) -> str:
     if len(normalized) > SUBJECT_CODE_MAX_LENGTH:
         raise SubjectCodeError(
             f"Subject code must be {SUBJECT_CODE_MAX_LENGTH} characters or fewer."
-        )
-
-    # Reject non-printable characters (Unicode category "C" and similar).
-    # isprintable() returns False for control characters, surrogates, etc.
-    # Space (U+0020) is printable; other whitespace has already been collapsed.
-    if any(not ch.isprintable() for ch in normalized):
-        raise SubjectCodeError(
-            "Subject code may not contain non-printable characters."
         )
 
     return normalized
