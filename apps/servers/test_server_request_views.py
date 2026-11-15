@@ -131,11 +131,7 @@ class ServerRequestViewTests(TestCase):
 
         denied_response = self.client.get(url)
 
-        self.assertEqual(denied_response.status_code, 302)
-        self.assertEqual(
-            urlsplit(denied_response.url).path,
-            reverse("admin:login"),
-        )
+        self.assertEqual(denied_response.status_code, 403)
 
         admin_user = User.objects.create_user(
             email="admin@example.com",
@@ -247,7 +243,7 @@ class ServerRequestViewTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(
             urlsplit(response.url).path,
-            reverse("admin:login"),
+            reverse("accounts:login"),
         )
 
     def test_missing_private_cor_returns_not_found_to_admin(self):

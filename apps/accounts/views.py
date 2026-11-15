@@ -14,7 +14,7 @@ from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 
-from apps.accounts.decorators import verified_required
+from apps.accounts.decorators import is_platform_admin, verified_required
 from apps.accounts.forms import (
     EmailAuthenticationForm,
     RegistrationEmailForm,
@@ -338,11 +338,28 @@ def _verification_failure(request, message):
     return response
 
 
-login_view = LoginView.as_view(
-    authentication_form=EmailAuthenticationForm,
-    template_name="accounts/login.html",
-    redirect_authenticated_user=True,
-)
+class CuratorLoginView(LoginView):
+    """Curator login view with Platform Admin post-login redirection.
+
+    Admins without a safe explicit ``next`` destination land on the
+    ServerRequest review queue. All other users retain the default
+    post-login destination.
+    """
+
+    authentication_form = EmailAuthenticationForm
+    template_name = "accounts/login.html"
+    redirect_authenticated_user = True
+
+    def get_success_url(self):
+        next_url = self.get_redirect_url()
+        if next_url:
+            return next_url
+        if is_platform_admin(self.request.user):
+            return reverse("servers:admin_server_request_queue")
+        return self.get_default_redirect_url()
+
+
+login_view = CuratorLoginView.as_view()
 logout_view = LogoutView.as_view(next_page="accounts:login")
 
 

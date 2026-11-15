@@ -128,16 +128,9 @@ class AdminServerRequestReviewTests(TestCase):
             RequestStatus.APPROVED,
         )
 
-        self.assertEqual(queue_response.status_code, 302)
-        self.assertEqual(
-            urlsplit(queue_response.url).path,
-            reverse("admin:login"),
-        )
-        self.assertEqual(decision_response.status_code, 302)
-        self.assertEqual(
-            urlsplit(decision_response.url).path,
-            reverse("admin:login"),
-        )
+        self.assertEqual(queue_response.status_code, 403)
+        self.assertEqual(decision_response.status_code, 403)
+
         request_obj.refresh_from_db()
         self.assertEqual(request_obj.status, RequestStatus.PENDING)
         self.assertEqual(Server.objects.count(), 0)
