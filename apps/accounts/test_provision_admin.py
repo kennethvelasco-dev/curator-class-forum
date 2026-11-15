@@ -161,3 +161,15 @@ class ProvisionAdminCommandTests(TestCase):
         combined = out + err
         self.assertNotIn("Str0ngP@ssw0rd", combined)
         self.assertNotIn("password", combined.lower())
+
+    @patch("apps.accounts.management.commands.provision_admin.getpass")
+    def test_rejects_malformed_email(self, mocked_getpass):
+        with self.assertRaises(CommandError):
+            call_command(
+                "provision_admin",
+                "not-an-email",
+                "Test Admin",
+            )
+
+        self.assertFalse(User.objects.exists())
+        mocked_getpass.assert_not_called()

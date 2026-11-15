@@ -18,6 +18,12 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         email = User.objects.normalize_email(options["email"])
+
+        try:
+            email = User._meta.get_field("email").clean(email, None)
+        except ValidationError as exc:
+            raise CommandError("Enter a valid email address.") from exc
+        
         full_name = options["full_name"].strip()
         if not full_name:
             raise CommandError("A full name is required.")
