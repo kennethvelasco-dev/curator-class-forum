@@ -1,6 +1,7 @@
 """Server-scoped authorization helpers for membership workflows."""
 
 from apps.servers.models import Membership, MembershipRole, MembershipStatus
+from apps.servers.services.access import user_can_access_channel
 
 
 def is_active_president_of_server(user, server):
@@ -30,3 +31,12 @@ def can_view_server_member_list(user, server):
         status=MembershipStatus.ACTIVE,
         server__is_active=True,
     ).exists()
+
+
+def can_access_channel(user, channel):
+    """Return whether the user may access the given channel.
+
+    Thin wrapper delegating to the centralized access policy in
+    apps.servers.services.access so channel authorization stays in one place.
+    """
+    return user_can_access_channel(user, channel)
