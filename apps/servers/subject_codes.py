@@ -19,6 +19,7 @@ Rules (must remain stable):
 from __future__ import annotations
 
 SUBJECT_CODE_MAX_LENGTH = 64
+SUBJECT_CODE_NORMALIZED_MAX_LENGTH = 192
 
 
 class SubjectCodeError(ValueError):

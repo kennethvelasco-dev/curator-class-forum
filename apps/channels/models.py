@@ -1,9 +1,13 @@
 """Models for channels within class servers."""
 
 from django.db import models
-from django.db.models.functions import Lower
 
-from apps.servers.subject_codes import SUBJECT_CODE_MAX_LENGTH
+from apps.servers.subject_codes import (
+    SUBJECT_CODE_MAX_LENGTH,
+    SUBJECT_CODE_NORMALIZED_MAX_LENGTH,
+    SubjectCodeError,
+    canonicalize_subject_code,
+)
 
 
 class ChannelType(models.TextChoices):
@@ -34,7 +38,43 @@ class Channel(models.Model):
         null=True,
         blank=True,
     )
+    subject_code_normalized = models.CharField(
+        max_length=SUBJECT_CODE_NORMALIZED_MAX_LENGTH,
+        null=True,
+        blank=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        # Populate the normalized comparison key from subject_code using the
+        # same canonicalization contract as the enrollment service, followed
+        # by Unicode case folding for consistent case-insensitive matching.
+        update_fields = kwargs.get("update_fields")
+        should_update_normalized = (
+            update_fields is None
+            or "subject_code" in update_fields
+            or "subject_code_normalized" in update_fields
+        )
+
+        if should_update_normalized:
+            if self.subject_code is not None:
+                try:
+                    self.subject_code_normalized = (
+                        canonicalize_subject_code(self.subject_code).casefold()
+                    )
+                except SubjectCodeError:
+                    # Invalid codes cannot match any approved enrollment.
+                    self.subject_code_normalized = None
+            else:
+                self.subject_code_normalized = None
+
+            if update_fields is not None and "subject_code" in update_fields:
+                updated = list(update_fields)
+                if "subject_code_normalized" not in updated:
+                    updated.append("subject_code_normalized")
+                kwargs["update_fields"] = updated
+
+        super().save(*args, **kwargs)
 
     class Meta:
         constraints = [
@@ -82,7 +122,7 @@ class Channel(models.Model):
             # is not needed here. Slugs remain URL identifiers only and are not
             # used for subject matching.
             models.UniqueConstraint(
-                Lower("subject_code"),
+                "subject_code_normalized",
                 "server",
                 condition=models.Q(channel_type=ChannelType.SUBJECT),
                 name="channels_channel_unique_server_subject_code_ci",
