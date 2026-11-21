@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError, transaction
 from django.test import TestCase, TransactionTestCase
-
+from django.core.exceptions import ValidationError
 from apps.channels.models import Channel, ChannelType
 from apps.servers.models import (
     Membership,
@@ -21,6 +21,10 @@ from apps.servers.models import (
 from apps.servers.services.access import (
     get_accessible_channels_for_user,
     user_can_access_channel,
+)
+from apps.servers.subject_codes import (
+    SubjectCodeError,
+    canonicalize_subject_code,
 )
 
 User = get_user_model()
@@ -390,15 +394,20 @@ class ChannelAccessPolicyTests(TestCase):
         self.assertTrue(user_can_access_channel(self.student, channel))
 
     def test_whitespace_only_code_grants_no_access(self):
+        # MembershipSubject.save() calls canonicalize_subject_code, which raises
+        # SubjectCodeError for whitespace-only codes.  The subject is never
+        # persisted, so no subject-channel access is granted.
         membership = create_membership(self.student, self.server)
-        MembershipSubject.objects.create(membership=membership, subject_code="   ")
+        with self.assertRaises(SubjectCodeError):
+            MembershipSubject.objects.create(membership=membership, subject_code="   ")
+        # Confirm: no subjects were persisted, so access is still denied.
         self.assertFalse(user_can_access_channel(self.student, self.subject_cs))
         channels = list(get_accessible_channels_for_user(self.student, self.server))
         self.assertEqual(
             [c for c in channels if c.channel_type == ChannelType.SUBJECT], []
         )
 
-    # ---- Role change between queryset construction and evaluation ------
+    # ---- Evaluation-time authorization changes -------------------------
 
     def test_role_change_after_queryset_construction(self):
         membership = create_membership(self.student, self.server, role=MembershipRole.OFFICER)
@@ -407,6 +416,117 @@ class ChannelAccessPolicyTests(TestCase):
         membership.role = MembershipRole.STUDENT
         membership.save(update_fields=["role"])
         self.assertFalse(qs.filter(pk=self.subject_math.pk).exists())
+
+    def test_membership_deactivation_after_queryset_construction(self):
+        membership = create_membership(self.student, self.server)
+        MembershipSubject.objects.create(membership=membership, subject_code="CS101")
+        qs = get_accessible_channels_for_user(self.student, self.server)
+        self.assertTrue(qs.filter(pk=self.subject_cs.pk).exists())
+
+        membership.status = MembershipStatus.LEFT
+        membership.save(update_fields=["status"])
+        self.assertFalse(qs.filter(pk=self.subject_cs.pk).exists())
+        self.assertEqual(list(qs), [])
+
+    def test_server_deactivation_after_queryset_construction(self):
+        membership = create_membership(self.student, self.server)
+        MembershipSubject.objects.create(membership=membership, subject_code="CS101")
+        qs = get_accessible_channels_for_user(self.student, self.server)
+        self.assertTrue(qs.filter(pk=self.subject_cs.pk).exists())
+
+        self.server.is_active = False
+        self.server.save(update_fields=["is_active"])
+        self.assertFalse(qs.filter(pk=self.subject_cs.pk).exists())
+        self.assertEqual(list(qs), [])
+
+    def test_subject_removal_after_queryset_construction(self):
+        membership = create_membership(self.student, self.server)
+        ms = MembershipSubject.objects.create(membership=membership, subject_code="CS101")
+        qs = get_accessible_channels_for_user(self.student, self.server)
+        self.assertTrue(qs.filter(pk=self.subject_cs.pk).exists())
+
+        ms.delete()
+        self.assertFalse(qs.filter(pk=self.subject_cs.pk).exists())
+
+    def test_subject_addition_after_queryset_construction(self):
+        membership = create_membership(self.student, self.server)
+        qs = get_accessible_channels_for_user(self.student, self.server)
+        self.assertFalse(qs.filter(pk=self.subject_cs.pk).exists())
+
+        MembershipSubject.objects.create(membership=membership, subject_code="CS101")
+        self.assertTrue(qs.filter(pk=self.subject_cs.pk).exists())
+
+    # ---- Legacy placeholder protection --------------------------------
+
+    def test_legacy_placeholder_cannot_grant_student_access(self):
+        channel = Channel(
+            server=self.server,
+            name="Legacy Unmapped",
+            slug="legacy-unmapped-access",
+            channel_type=ChannelType.SUBJECT,
+            subject_code="legacy-channel-88",
+            subject_code_normalized=None,
+        )
+        Channel.objects.bulk_create([channel])
+        channel.refresh_from_db()
+
+        create_membership(self.student, self.server)
+        self.assertFalse(user_can_access_channel(self.student, channel))
+
+    def test_legacy_placeholder_cannot_be_approved_as_subject(self):
+        with self.assertRaises(SubjectCodeError):
+            canonicalize_subject_code("legacy-channel-1")
+        with self.assertRaises(SubjectCodeError):
+            canonicalize_subject_code("LEGACY-CHANNEL-99")
+
+    def test_legacy_placeholder_replacement_restores_normal_matching(self):
+        channel = Channel(
+            server=self.server,
+            name="Legacy To Replace",
+            slug="legacy-replace",
+            channel_type=ChannelType.SUBJECT,
+            subject_code="legacy-channel-77",
+            subject_code_normalized=None,
+        )
+        Channel.objects.bulk_create([channel])
+        channel.refresh_from_db()
+
+        membership = create_membership(self.student, self.server)
+
+        # Use a subject code not already present in self.server to avoid
+        # colliding with the MATH201 channel created in setUp.
+        MembershipSubject.objects.create(
+            membership=membership,
+            subject_code="PHY101",
+        )
+        self.assertFalse(user_can_access_channel(self.student, channel))
+
+        # Replace the historical placeholder with a real subject code.
+        channel.subject_code = "PHY101"
+        channel.save(update_fields=["subject_code"])
+        channel.refresh_from_db()
+
+        self.assertEqual(channel.subject_code_normalized, "phy101")
+        self.assertTrue(user_can_access_channel(self.student, channel))
+
+    def test_officer_can_access_legacy_channel(self):
+        channel = Channel(
+            server=self.server,
+            name="Legacy Officer",
+            slug="legacy-officer",
+            channel_type=ChannelType.SUBJECT,
+            subject_code="legacy-channel-66",
+            subject_code_normalized=None,
+        )
+        Channel.objects.bulk_create([channel])
+        channel.refresh_from_db()
+
+        create_membership(
+            self.officer,
+            self.server,
+            role=MembershipRole.OFFICER,
+        )
+        self.assertTrue(user_can_access_channel(self.officer, channel))
 
     # ---- Large approved-subject collection -----------------------------
 
@@ -445,7 +565,7 @@ class ChannelSubjectCodeConstraintTests(TestCase):
         self.server = create_server(name="Class A", slug="class-a")
 
     def test_subject_channel_requires_non_null_subject_code(self):
-        with self.assertRaises(IntegrityError):
+        with self.assertRaises((SubjectCodeError, IntegrityError)):
             with transaction.atomic():
                 Channel.objects.create(
                     server=self.server,
@@ -456,7 +576,7 @@ class ChannelSubjectCodeConstraintTests(TestCase):
                 )
 
     def test_subject_channel_rejects_empty_subject_code(self):
-        with self.assertRaises(IntegrityError):
+        with self.assertRaises((SubjectCodeError, IntegrityError)):
             with transaction.atomic():
                 Channel.objects.create(
                     server=self.server,
@@ -464,6 +584,55 @@ class ChannelSubjectCodeConstraintTests(TestCase):
                     slug="subject",
                     channel_type=ChannelType.SUBJECT,
                     subject_code="",
+                )
+
+    def test_subject_channel_rejects_whitespace_only_subject_code(self):
+        with self.assertRaises(SubjectCodeError):
+            with transaction.atomic():
+                Channel.objects.create(
+                    server=self.server,
+                    name="Whitespace Only",
+                    slug="ws-only",
+                    channel_type=ChannelType.SUBJECT,
+                    subject_code="   ",
+                )
+
+    def test_subject_channel_update_rejects_whitespace_only_subject_code(self):
+        # QuerySet.update() bypasses save(), so the database CheckConstraint is
+        # the backstop that must reject whitespace-only subject codes.
+        channel = Channel.objects.create(
+            server=self.server,
+            name="Subject",
+            slug="subject",
+            channel_type=ChannelType.SUBJECT,
+            subject_code="CS101",
+        )
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Channel.objects.filter(pk=channel.pk).update(
+                    subject_code="   "
+                )
+
+    def test_subject_channel_rejects_padded_subject_code(self):
+        with self.assertRaises(SubjectCodeError):
+            with transaction.atomic():
+                Channel.objects.create(
+                    server=self.server,
+                    name="Padded Code",
+                    slug="padded-code",
+                    channel_type=ChannelType.SUBJECT,
+                    subject_code="  CS101  ",
+                )
+
+    def test_subject_channel_rejects_unprintable_subject_code(self):
+        with self.assertRaises(SubjectCodeError):
+            with transaction.atomic():
+                Channel.objects.create(
+                    server=self.server,
+                    name="Unprintable Code",
+                    slug="unprintable-code",
+                    channel_type=ChannelType.SUBJECT,
+                    subject_code="CS\t101",
                 )
 
     def test_subject_channel_accepts_valid_subject_code(self):
@@ -477,15 +646,14 @@ class ChannelSubjectCodeConstraintTests(TestCase):
         self.assertIsNotNone(channel.subject_code)
 
     def test_default_channel_subject_code_must_be_null(self):
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                Channel.objects.create(
-                    server=self.server,
-                    name="Announcements",
-                    slug="announcements",
-                    channel_type=ChannelType.ANNOUNCEMENTS,
-                    subject_code="CS101",
-                )
+        with self.assertRaises(ValidationError):
+            Channel.objects.create(
+                server=self.server,
+                name="Announcements",
+                slug="announcements",
+                channel_type=ChannelType.ANNOUNCEMENTS,
+                subject_code="CS101",
+            )
 
     def test_default_channel_accepts_null_subject_code(self):
         channel = Channel.objects.create(
@@ -566,12 +734,8 @@ class MigrationBackfillTests(TransactionTestCase):
             channel_type="subject",
         )
 
-        migrate_to_targets = [
-            t for t in current_targets if t[0] != "channels"
-        ]
-        migrate_to_targets.append(
-            ("channels", "0002_channel_subject_code_and_more")
-        )
+        # Migrate through leaf (0002 + 0003). 0003 unmaps legacy normalized keys.
+        migrate_to_targets = list(current_targets)
         MigrationExecutor(connection).migrate(migrate_to_targets)
 
         migrated_apps = MigrationExecutor(connection).loader.project_state(
@@ -582,31 +746,28 @@ class MigrationBackfillTests(TransactionTestCase):
         self.assertEqual(
             channel.subject_code, f"legacy-channel-{channel.pk}"
         )
-        self.assertEqual(
-            channel.subject_code_normalized,
-            f"legacy-channel-{channel.pk}",
-        )
+
+        # Legacy placeholders remain on subject_code but are not valid
+        # normalized subject-access keys after channels.0003.
+        self.assertIsNone(channel.subject_code_normalized)
+
 
     def test_database_with_no_subject_rows_migrates_cleanly(self):
         from django.db import connection
         from django.db.migrations.executor import MigrationExecutor
 
-        executor = MigrationExecutor(connection)
-        current_targets = executor.loader.graph.leaf_nodes()
+        leaf = list(MigrationExecutor(connection).loader.graph.leaf_nodes())
+        from_targets = [t for t in leaf if t[0] != "channels"] + [
+            ("channels", "0001_initial")
 
-        migrate_from_targets = [
-            t for t in current_targets if t[0] != "channels"
         ]
-        migrate_from_targets.append(("channels", "0001_initial"))
-        executor.migrate(migrate_from_targets)
-
-        migrate_to_targets = [
-            t for t in current_targets if t[0] != "channels"
-        ]
-        migrate_to_targets.append(
-            ("channels", "0002_channel_subject_code_and_more")
-        )
-        executor.migrate(migrate_to_targets)
+        try:
+            MigrationExecutor(connection).migrate(from_targets)
+            MigrationExecutor(connection).migrate(leaf)
+        finally:
+            executor = MigrationExecutor(connection)
+            executor.loader.build_graph()
+            executor.migrate(leaf)
 
     def test_duplicate_legacy_identifiers_are_unique(self):
         from django.db import connection
@@ -803,10 +964,7 @@ class MigrationBackfillTests(TransactionTestCase):
             # Restore migration state safely.
             clean_executor = MigrationExecutor(connection)
             clean_executor.loader.build_graph()
-            try:
-                clean_executor.migrate(migrate_from_targets)
-            except Exception:
-                pass
+            clean_executor.migrate(migrate_from_targets)
             LegacyChannel.objects.filter(server=server).delete()
             server.delete()
             MigrationExecutor(connection).migrate(current_targets)
@@ -887,12 +1045,25 @@ class ChannelSubjectCodeNormalizedTests(TestCase):
         self.assertEqual(channel.subject_code, "\u00e9co101")
 
     def test_whitespace_normalized_before_storage(self):
+        # Non-canonical subject codes (padded or with repeated internal
+        # whitespace) are now rejected by Channel.save() with SubjectCodeError.
+        # Verify rejection, then confirm that a canonical code is accepted and
+        # its normalized key is stored with case-folding applied.
+        with self.assertRaises(SubjectCodeError):
+            with transaction.atomic():
+                Channel.objects.create(
+                    server=self.server,
+                    name="Whitespace",
+                    slug="ws-noncanon",
+                    channel_type=ChannelType.SUBJECT,
+                    subject_code="  CS  101  ",
+                )
         channel = Channel.objects.create(
             server=self.server,
-            name="Whitespace",
+            name="Canonical Whitespace",
             slug="ws",
             channel_type=ChannelType.SUBJECT,
-            subject_code="  CS  101  ",
+            subject_code="CS 101",
         )
         self.assertEqual(channel.subject_code_normalized, "cs 101")
 
@@ -1004,3 +1175,132 @@ class ChannelSubjectCodeNormalizedTests(TestCase):
                     channel_type=ChannelType.SUBJECT,
                     subject_code="SS",
                 )
+
+
+    def test_whitespace_only_subject_code_rejected_on_save(self):
+        with self.assertRaises(SubjectCodeError):
+            Channel.objects.create(
+                server=self.server,
+                name="WS Only",
+                slug="ws-only-save",
+                channel_type=ChannelType.SUBJECT,
+                subject_code="   ",
+            )
+
+    def test_padded_subject_code_rejected_on_save(self):
+        with self.assertRaises(SubjectCodeError):
+            Channel.objects.create(
+                server=self.server,
+                name="Padded",
+                slug="padded-save",
+                channel_type=ChannelType.SUBJECT,
+                subject_code="  CS101  ",
+            )
+
+    def test_valid_subject_code_persists_normalized_key(self):
+        channel = Channel.objects.create(
+            server=self.server,
+            name="Valid",
+            slug="valid-save",
+            channel_type=ChannelType.SUBJECT,
+            subject_code="CS101",
+        )
+        channel.refresh_from_db()
+        self.assertEqual(channel.subject_code, "CS101")
+        self.assertEqual(channel.subject_code_normalized, "cs101")
+
+    def test_unprintable_subject_code_rejected_on_save(self):
+        with self.assertRaises(SubjectCodeError):
+            Channel.objects.create(
+                server=self.server,
+                name="Tab",
+                slug="tab-save",
+                channel_type=ChannelType.SUBJECT,
+                subject_code="CS	101",
+            )
+
+    def test_new_legacy_placeholder_rejected_on_save(self):
+        with self.assertRaises(SubjectCodeError):
+            Channel.objects.create(
+                server=self.server,
+                name="Legacy",
+                slug="legacy-save",
+                channel_type=ChannelType.SUBJECT,
+                subject_code="legacy-channel-42",
+            )
+
+    def test_legacy_placeholder_rejected_by_canonicalize(self):
+        with self.assertRaises(SubjectCodeError):
+            canonicalize_subject_code("legacy-channel-1")
+        with self.assertRaises(SubjectCodeError):
+            canonicalize_subject_code("LEGACY-CHANNEL-99")
+
+    def test_legacy_placeholder_cannot_grant_student_access(self):
+        channel = Channel(
+            server=self.server,
+            name="Legacy Access",
+            slug="legacy-access",
+            channel_type=ChannelType.SUBJECT,
+            subject_code="legacy-channel-88",
+            subject_code_normalized=None,
+        )
+        Channel.objects.bulk_create([channel])
+        channel.refresh_from_db()
+
+        student = create_verified_user(email="legacy-access@example.com")
+        membership = create_membership(student, self.server)
+
+        # Simulate malformed historical data. bulk_create bypasses model hooks.
+        MembershipSubject.objects.bulk_create(
+            [
+                MembershipSubject(
+                    membership=membership,
+                    subject_code="legacy-channel-88",
+                )
+            ]
+        )
+
+        self.assertFalse(user_can_access_channel(student, channel))
+        channels = list(get_accessible_channels_for_user(student, self.server))
+        self.assertNotIn(channel, channels)
+
+    def test_save_update_fields_generator_persists_normalized(self):
+        channel = Channel.objects.create(
+            server=self.server,
+            name="Gen",
+            slug="gen-update",
+            channel_type=ChannelType.SUBJECT,
+            subject_code="OLD101",
+        )
+        channel.subject_code = "NEW101"
+        channel.save(update_fields=(f for f in ["subject_code"]))
+        channel.refresh_from_db()
+        self.assertEqual(channel.subject_code, "NEW101")
+        self.assertEqual(channel.subject_code_normalized, "new101")
+
+    def test_normalized_only_update_fields_raises(self):
+        channel = Channel.objects.create(
+            server=self.server,
+            name="Norm Only",
+            slug="norm-only",
+            channel_type=ChannelType.SUBJECT,
+            subject_code="CS101",
+        )
+        channel.subject_code = "OTHER101"  # in-memory only
+        with self.assertRaises(ValueError):
+            channel.save(update_fields=["subject_code_normalized"])
+        channel.refresh_from_db()
+        self.assertEqual(channel.subject_code, "CS101")
+        self.assertEqual(channel.subject_code_normalized, "cs101")
+
+    def test_whitespace_only_rejected_by_db_constraint_on_queryset_update(self):
+        channel = Channel.objects.create(
+            server=self.server,
+            name="DB WS",
+            slug="db-ws",
+            channel_type=ChannelType.SUBJECT,
+            subject_code="CS101",
+        )
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Channel.objects.filter(pk=channel.pk).update(subject_code="   ")

@@ -17,7 +17,6 @@ from apps.servers.models import (
     MembershipStatus,
     MembershipSubject,
 )
-from apps.servers.subject_codes import canonicalize_subject_code, SubjectCodeError
 
 
 DEFAULT_CHANNEL_TYPES = (
@@ -25,22 +24,6 @@ DEFAULT_CHANNEL_TYPES = (
     ChannelType.CALENDAR,
     ChannelType.RULES,
 )
-
-
-def _normalize_approved_codes(codes):
-    """Return a list of case-folded, canonicalized subject-code comparison keys.
-
-    Invalid codes are skipped defensively so they never grant access.
-    """
-    normalized = []
-    for code in codes:
-        if not code:
-            continue
-        try:
-            normalized.append(canonicalize_subject_code(code).casefold())
-        except SubjectCodeError:
-            continue
-    return normalized
 
 
 def get_accessible_channels_for_user(user, server):
@@ -59,59 +42,59 @@ def get_accessible_channels_for_user(user, server):
       Unicode case-folded). A student with no approved subjects sees only
       default channels.
 
-    All filtering is expressed in the database query so that role authorization
-    and subject matching are evaluated when the queryset is consumed, not at
-    construction time. No permission results are cached.
+    All authorization predicates (active membership, active server, role, and
+    subject matching) are expressed as correlated database subqueries evaluated
+    when the queryset is consumed, preserving laziness and preventing stale
+    permissions if membership status or subject enrollments change after
+    queryset construction.
     """
     if user is None or not getattr(user, "is_authenticated", False):
         return Channel.objects.none()
     if server is None:
         return Channel.objects.none()
 
-    membership = (
-        Membership.objects.filter(
-            user=user,
-            server=server,
-            status=MembershipStatus.ACTIVE,
-            server__is_active=True,
-        )
-        .select_related("server")
-        .first()
-    )
-    if membership is None:
-        return Channel.objects.none()
-
     base_qs = Channel.objects.filter(server=server)
-    default_q = Q(channel_type__in=DEFAULT_CHANNEL_TYPES)
 
-    # Normalize approved subject codes once; invalid codes are skipped so they
-    # never grant access.
-    approved_codes = MembershipSubject.objects.filter(
-        membership=membership
-    ).values_list("subject_code", flat=True)
-    normalized_codes = _normalize_approved_codes(approved_codes)
+    # 1 & 2 & 3: Active membership in an active server checked at evaluation time
+    # through a correlated Exists predicate across all channels (including defaults).
+    active_membership = Membership.objects.filter(
+        user=user,
+        server=OuterRef("server_id"),
+        status=MembershipStatus.ACTIVE,
+        server__is_active=True,
+    )
 
-    # Role check pushed into the database via a correlated EXISTS subquery so
-    # it is evaluated when the queryset is consumed, not at construction time.
-    # This prevents a concurrent role demotion from leaving a previously
-    # authorized unrestricted queryset available after evaluation.
+    # 4: Elevated Officer/President access within their active server, evaluated at query time.
     is_officer_or_president = Membership.objects.filter(
         user=user,
         server=OuterRef("server_id"),
         role__in=(MembershipRole.OFFICER, MembershipRole.PRESIDENT),
         status=MembershipStatus.ACTIVE,
-    ).filter(server__is_active=True)
-
-    subject_access_q = Q(
-        channel_type=ChannelType.SUBJECT,
-    ) & (
-        Q(subject_code_normalized__in=normalized_codes)
-        | Q(Exists(is_officer_or_president))
+        server__is_active=True,
     )
 
-    return (
-        base_qs.filter(default_q | subject_access_q)
-        .order_by("channel_type", "name", "pk")
+    # 5: Correlated Exists matching between Channel.subject_code_normalized
+    # and MembershipSubject.subject_code_normalized for current approved subjects.
+    # Legacy channels (where Channel.subject_code_normalized is None) will not match.
+    has_approved_subject = MembershipSubject.objects.filter(
+        membership__user=user,
+        membership__server=OuterRef("server_id"),
+        membership__status=MembershipStatus.ACTIVE,
+        membership__server__is_active=True,
+        subject_code_normalized=OuterRef("subject_code_normalized"),
+    ).exclude(subject_code_normalized__isnull=True)
+
+    default_channels_q = Q(channel_type__in=DEFAULT_CHANNEL_TYPES)
+    officer_president_q = Q(Exists(is_officer_or_president))
+    student_subject_q = Q(
+        channel_type=ChannelType.SUBJECT,
+    ) & Q(Exists(has_approved_subject))
+
+    membership_gate = Q(Exists(active_membership))
+    channel_visibility = default_channels_q | officer_president_q | student_subject_q
+
+    return base_qs.filter(membership_gate & channel_visibility).order_by(
+        "channel_type", "name", "pk"
     )
 
 

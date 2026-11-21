@@ -14,16 +14,25 @@ Rules (must remain stable):
 - Preserve capitalization of the remaining characters.
 - Reject empty results after normalization.
 - Reject values longer than SUBJECT_CODE_MAX_LENGTH after normalization.
+- Reject reserved legacy-channel- placeholder identifiers.
 """
 
 from __future__ import annotations
 
 SUBJECT_CODE_MAX_LENGTH = 64
 SUBJECT_CODE_NORMALIZED_MAX_LENGTH = 192
+LEGACY_SUBJECT_CODE_PREFIX = "legacy-channel-"
 
 
 class SubjectCodeError(ValueError):
     """Raised when a subject code fails the canonical contract."""
+
+
+def is_legacy_subject_code(code) -> bool:
+    """Return True if code is a reserved legacy placeholder identifier (case-insensitive)."""
+    if not isinstance(code, str):
+        return False
+    return code.casefold().startswith(LEGACY_SUBJECT_CODE_PREFIX.casefold())
 
 
 def canonicalize_subject_code(raw) -> str:
@@ -56,6 +65,11 @@ def canonicalize_subject_code(raw) -> str:
     if len(normalized) > SUBJECT_CODE_MAX_LENGTH:
         raise SubjectCodeError(
             f"Subject code must be {SUBJECT_CODE_MAX_LENGTH} characters or fewer."
+        )
+
+    if is_legacy_subject_code(normalized):
+        raise SubjectCodeError(
+            f"Subject code may not use the reserved '{LEGACY_SUBJECT_CODE_PREFIX}' prefix."
         )
 
     return normalized
