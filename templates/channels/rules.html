@@ -1,0 +1,114 @@
+
+{% extends "base.html" %}
+
+{% block title %}Class Rules - Curator{% endblock %}
+
+{% block content %}
+<section class="account-page rules-page">
+    <div class="account-card rules-card">
+
+        <p class="eyebrow">CLASS GUIDELINES</p>
+        <h1>Class Rules</h1>
+
+        <p class="account-intro">
+            This channel explains the rules governing class participation,
+            the authority of each member role, and the consequences of violations.
+        </p>
+
+        <section class="rules-section">
+            <h2>1. Subject Channel Access</h2>
+            <p>
+                Students may access a subject channel only when their
+                verified Certificate of Registration (CoR) confirms
+                enrollment in that subject for the corresponding server section.
+            </p>
+        </section>
+
+        <section class="rules-section">
+            <h2>2. Anonymity and Accountability</h2>
+            <p>
+                Anonymous posting changes only how a member's identity
+                is displayed. It does not exempt the member from class
+                rules or institutional policies.
+            </p>
+        </section>
+
+        <section class="rules-section">
+            <h2>3. Member Roles and Authority</h2>
+
+            <article class="role-card">
+                <h3>Student</h3>
+                <ul>
+                    <li>Register and join approved class servers.</li>
+                    <li>View channels they are authorized to access.</li>
+                    <li>Create discussion threads and replies.</li>
+                    <li>Report inappropriate content or abuse of authority.</li>
+                </ul>
+            </article>
+
+            <article class="role-card">
+                <h3>Officer</h3>
+                <ul>
+                    <li>Perform student activities.</li>
+                    <li>Manage member subject-channel access.</li>
+                    <li>Add forum channels and edit professor details.</li>
+                    <li>Post announcements.</li>
+                    <li>Hide or remove content.</li>
+                </ul>
+                <p>All officers hold the same authority.</p>
+            </article>
+
+            <article class="role-card">
+                <h3>President</h3>
+                <ul>
+                    <li>Perform officer activities.</li>
+                    <li>Verify join requests.</li>
+                    <li>Assign officer roles.</li>
+                    <li>Transfer the President role.</li>
+                    <li>Access audit logs for their own server.</li>
+                    <li>View discussion authorship only through the
+                        authorized process.</li>
+                </ul>
+            </article>
+
+            <article class="role-card">
+                <h3>Administrator</h3>
+                <ul>
+                    <li>Confirm server creation requests.</li>
+                    <li>Manage user accounts.</li>
+                    <li>Review abuse reports.</li>
+                    <li>Access audit logs.</li>
+                    <li>View authorship only in servers named in
+                        an abuse report, subject to the required process.</li>
+                </ul>
+            </article>
+        </section>
+
+        <section class="rules-section">
+            <h2>4. Moderation and Consequences</h2>
+            <ul>
+                <li>Content may be hidden or removed by authorized officers.</li>
+                <li>A reason must be provided to the affected member
+                    when content is hidden or removed.</li>
+                <li>Administrators may take action on substantiated
+                    abuse reports, including content removal,
+                    account suspension, or server deletion.</li>
+                <li>Access to discussion authorship requires an
+                    authorized reason, an audit record, and
+                    notification to the affected author.</li>
+            </ul>
+        </section>
+
+        <section class="rules-section">
+            <h2>5. Reporting Abuse</h2>
+            <p>
+                Members may report inappropriate content or abuse
+                of authority. Administrators review reports and
+                may take action according to the system's
+                established policies.
+            </p>
+        </section>
+
+    </div>
+</section>
+{% endblock %}

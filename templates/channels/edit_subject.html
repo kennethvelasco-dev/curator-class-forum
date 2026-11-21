@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}Edit {{ channel.name }} | Curator{% endblock %}
+
+{% block content %}
+<section class="subject-page">
+    <div class="subject-header">
+        <p class="eyebrow">{{ server.name }}</p>
+        <h1>Edit Subject Channel</h1>
+        <p class="subject-code">Subject Code: {{ channel.slug }}</p>
+
+        <form method="post">
+            {% csrf_token %}
+
+            {{ form.as_p }}
+
+            <button class="button" type="submit">
+                Save Changes
+            </button>
+
+            <a href="{% url 'channels:subject' server.pk channel.pk %}">
+                Cancel
+            </a>
+        </form>
+    </div>
+</section>
+{% endblock %}
