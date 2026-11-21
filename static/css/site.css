@@ -252,3 +252,189 @@ h1 {
         padding: 1rem;
     }
 }
+
+
+.rules-page {
+    max-width: 1000px;
+}
+
+.rules-card {
+    line-height: 1.7;
+}
+
+.rules-section {
+    margin-top: 2.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #40594c;
+}
+
+.rules-section h2 {
+    margin: 0 0 1rem;
+    color: #98d7b5;
+    font-size: 1.35rem;
+}
+
+.rules-section p {
+    color: #c2d0c8;
+}
+
+.rules-section ul {
+    padding-left: 1.5rem;
+    color: #c2d0c8;
+}
+
+.rules-section li + li {
+    margin-top: 0.6rem;
+}
+
+.role-card {
+    margin-top: 1.25rem;
+    padding: 1.25rem;
+    border: 1px solid #40594c;
+    border-radius: 0.6rem;
+    background: #1b2c25;
+}
+
+.role-card h3 {
+    margin-top: 0;
+    color: #e8efe9;
+}
+
+.role-card p {
+    color: #c2d0c8;
+}
+
+.role-card ul {
+    margin-bottom: 0;
+}
+
+@media (max-width: 540px) {
+    .rules-section {
+        margin-top: 2rem;
+        padding-top: 1.25rem;
+    }
+
+    .role-card {
+        padding: 1rem;
+    }
+}
+
+.form-error {
+    margin: 0.25rem 0 0;
+    color: #ffaaa5;
+    font-size: 0.9rem;
+}
+
+.form-message {
+    margin: 1.25rem 0;
+    padding: 0.85rem 1rem;
+    border: 1px solid #40594c;
+    border-radius: 0.4rem;
+    background: #1b2c25;
+    color: #98d7b5;
+}
+
+.account-form .button {
+    width: fit-content;
+    border: 0;
+    cursor: pointer;
+    font: inherit;
+}
+
+@media (max-width: 540px) {
+    .account-form .button {
+        width: 100%;
+    }
+}
+
+.subject-channel-page {
+    width: min(100% - 2rem, 760px);
+    max-width: 760px;
+    margin: 3rem auto;
+    padding: 0;
+}
+
+.subject-channel-card {
+    padding: clamp(1.5rem, 4vw, 2.5rem);
+}
+
+.subject-channel-card h1 {
+    font-size: clamp(2rem, 4vw, 3rem);
+    line-height: 1.15;
+    margin-bottom: 1rem;
+}
+
+.subject-channel-card .account-intro {
+    max-width: 60ch;
+    line-height: 1.6;
+}
+
+.subject-channel-card .form-field input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.85rem 1rem;
+    background: #101a15;
+    color: #e8efe9;
+    border: 1px solid #40594c;
+    border-radius: 0.45rem;
+    font: inherit;
+}
+
+.subject-channel-card .form-field input:focus {
+    outline: 2px solid #98d7b5;
+    outline-offset: 2px;
+}
+
+@media (max-width: 540px) {
+    .subject-channel-page {
+        margin: 1.5rem auto;
+    }
+}
+/* Subject channel detail page */
+
+.subject-page {
+    width: min(100% - 2rem, 1000px);
+    margin: 2rem auto;
+}
+
+.subject-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding: 2rem;
+    background: #17251e;
+    border: 1px solid #40594c;
+    border-radius: 0.75rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.subject-header h1 {
+    margin-bottom: 0.5rem;
+}
+
+.subject-code {
+    color: #98d7b5;
+    font-weight: 600;
+}
+
+.professor-details {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid #40594c;
+    line-height: 1.8;
+}
+
+.professor-details h2 {
+    font-size: 1.2rem;
+}
+
+.subject-content {
+    min-height: 500px;
+    padding: 2rem 0;
+}
+
+@media (max-width: 540px) {
+    .subject-header {
+        padding: 1.25rem;
+    }
+}

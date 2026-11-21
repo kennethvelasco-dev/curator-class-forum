@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}{{ channel.name }} | Curator{% endblock %}
+
+{% block content %}
+<section class="subject-page">
+
+    <header class="subject-header">
+        <p class="eyebrow">{{ server.name }}</p>
+
+        <h1>{{ channel.name }}</h1>
+
+        <p class="subject-code">
+            Subject Code: {{ channel.slug }}
+        </p>
+
+        <div class="professor-details">
+            <h2>Professor Information</h2>
+
+            <p>
+                <strong>Professor:</strong>
+                {{ channel.professor_name|default:"Not provided" }}
+            </p>
+
+            <p>
+                <strong>Official Email:</strong>
+                {% if channel.professor_email %}
+                    <a href="mailto:{{ channel.professor_email }}">
+                        {{ channel.professor_email }}
+                    </a>
+                {% else %}
+                    Not provided
+                {% endif %}
+            </p>
+
+            <p>
+                <strong>Consultation Information:</strong>
+                {{ channel.office_hours|default:"Not provided" }}
+            </p>
+        </div>
+    </header>
+
+    <div class="subject-content">
+        <p class="muted">
+            Welcome to {{ channel.name }}.
+        </p>
+    </div>
+    {% if can_edit %}
+        <p>
+            <a href="{% url 'channels:edit_subject' server.pk channel.pk %}">
+                Edit Subject Channel
+            </a>
+        </p>
+    {% endif %}
+    <a href="{% url 'accounts:dashboard' %}">
+        Back to Dashboard
+    </a>
+
+</section>
+{% endblock %}

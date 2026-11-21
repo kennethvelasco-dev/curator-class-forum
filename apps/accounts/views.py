@@ -32,6 +32,7 @@ from apps.accounts.tokens import (
 from apps.servers.context import get_active_memberships, resolve_active_server
 from apps.servers.models import Membership, MembershipRole, MembershipStatus
 from apps.servers.permissions import is_active_president_of_server
+from apps.servers.services.access import get_accessible_channels_for_user
 
 REGISTRATION_VERIFICATION_SESSION_KEY = "accounts.registration_verification"
 EMAIL_VERIFICATION_SESSION_KEY = "accounts.email_verification"
@@ -142,6 +143,11 @@ def registration_complete(request):
 def dashboard(request):
     memberships = list(get_active_memberships(request.user))
     active_server = resolve_active_server(request)
+    accessible_channels = (
+    get_accessible_channels_for_user(request.user, active_server)
+    if active_server is not None
+    else []
+)
     has_active_president_membership = any(
         m.role == MembershipRole.PRESIDENT for m in memberships
     )
@@ -156,9 +162,10 @@ def dashboard(request):
         {
             "memberships": memberships,
             "active_server": active_server,
+            "accessible_channels": accessible_channels,
             "has_active_president_membership": has_active_president_membership,
             "is_president_of_active": is_president_of_active,
-        },
+        }
     )
 
 

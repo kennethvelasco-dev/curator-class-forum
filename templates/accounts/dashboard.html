@@ -12,8 +12,10 @@
                 {% endfor %}
             </ul>
         {% endif %}
+
         <p class="eyebrow">Your account</p>
         <h1>Welcome, {{ request.user.full_name }}</h1>
+
         <dl class="account-details">
             <div>
                 <dt>Full name</dt>
@@ -26,6 +28,7 @@
         </dl>
 
         <h2 class="account-section-title">Your class servers</h2>
+
         {% if memberships %}
             <ul class="server-list">
                 {% for membership in memberships %}
@@ -37,11 +40,13 @@
                             {% endif %}
                             <span class="role-badge">{{ membership.get_role_display }}</span>
                         </div>
+
                         {% if membership.role == "president" or membership.role == "officer" %}
                             <a href="{% url 'servers:server_member_list' membership.server_id %}">
                                 View members
                             </a>
                         {% endif %}
+
                         {% if active_server and membership.server_id == active_server.pk %}
                             <span class="current-server-label">Current</span>
                         {% else %}
@@ -54,6 +59,41 @@
                     </li>
                 {% endfor %}
             </ul>
+
+            {% if active_server %}
+                <section class="server-channels">
+                    <h3>Channels — {{ active_server.name }}</h3>
+
+                    {% if accessible_channels %}
+                        <ul class="channel-list">
+                            {% for channel in accessible_channels %}
+                                <li>
+                                    {% if channel.channel_type == "rules" %}
+                                        <a href="{% url 'channels:rules' active_server.pk %}">
+                                            {{ channel.name }}
+                                        </a>
+                                    {% elif channel.channel_type == "subject" %}
+                                        <a href="{% url 'channels:subject' active_server.pk channel.pk %}">
+                                            {{ channel.name }}
+                                        </a>
+                                    {% else %}
+                                        {{ channel.name }}
+                                    {% endif %}
+
+                                    <span class="muted">
+                                        {{ channel.get_channel_type_display }}
+                                    </span>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="muted">
+                            No channels are currently available.
+                        </p>
+                    {% endif %}
+                </section>
+            {% endif %}
+
             {% if active_server and is_president_of_active %}
                 <p class="account-intro">
                     <a href="{% url 'servers:transfer_presidency' active_server.pk %}">
@@ -61,6 +101,7 @@
                     </a>
                 </p>
             {% endif %}
+
         {% else %}
             <p class="account-intro muted">
                 You are not a member of any class server yet.
@@ -70,9 +111,11 @@
         <p class="account-intro">
             <a href="{% url 'servers:server_request' %}">Request a class server</a>
         </p>
+
         <p class="account-intro">
             <a href="{% url 'servers:join_request' %}">Join a class server</a>
         </p>
+
         {% if has_active_president_membership %}
             <p class="account-intro">
                 <a href="{% url 'servers:join_request_queue' %}">
@@ -80,6 +123,7 @@
                 </a>
             </p>
         {% endif %}
+
         {% if request.user.is_staff %}
             <p class="account-intro">
                 <a href="{% url 'servers:admin_server_request_queue' %}">
@@ -87,6 +131,7 @@
                 </a>
             </p>
         {% endif %}
+
         <form method="post" action="{% url 'accounts:logout' %}">
             {% csrf_token %}
             <button class="button" type="submit">Sign out</button>

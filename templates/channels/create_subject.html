@@ -1,0 +1,58 @@
+
+{% extends "base.html" %}
+
+{% block title %}Create Subject Channel | Curator{% endblock %}
+
+{% block content %}
+<section class="subject-channel-page">
+    <div class="account-card subject-channel-card">
+        <p class="eyebrow">{{ server.name }}</p>
+        <h1>Create Subject Channel</h1>
+        <p class="account-intro">
+            Add a subject channel for this class server. Only students whose
+            approved Certificate of Registration includes the subject can
+            access its channel.
+        </p>
+
+        {% if messages %}
+            {% for message in messages %}
+                <div class="form-message" role="status">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        <form method="post" class="account-form">
+            {% csrf_token %}
+
+            {% for field in form %}
+                <div class="form-field">
+                    <label for="{{ field.id_for_label }}">
+                        {{ field.label }}
+                    </label>
+
+                    {{ field }}
+
+                    {% if field.help_text %}
+                        <small>{{ field.help_text }}</small>
+                    {% endif %}
+
+                    {% for error in field.errors %}
+                        <p class="form-error" role="alert">
+                            {{ error }}
+                        </p>
+                    {% endfor %}
+                </div>
+            {% endfor %}
+
+            {% for error in form.non_field_errors %}
+                <p class="form-error" role="alert">{{ error }}</p>
+            {% endfor %}
+
+            <button type="submit" class="button">
+                Create Subject Channel
+            </button>
+        </form>
+    </div>
+</section>
+{% endblock %}
