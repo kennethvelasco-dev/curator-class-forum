@@ -566,6 +566,9 @@ def decide_join_request(
                         MembershipSubject(
                             membership=target_membership,
                             subject_code=subject_code,
+                            subject_code_normalized=canonicalize_subject_code(
+                                subject_code
+                            ).casefold(),
                         )
                         for subject_code in approved_subjects
                     ]
