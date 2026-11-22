@@ -15,12 +15,14 @@ class ChannelModelTests(TestCase):
         slug="announcements",
         channel_type=ChannelType.ANNOUNCEMENTS,
         server=None,
+        subject_code=None,
     ):
         return Channel.objects.create(
             server=server or self.server,
             name=name,
             slug=slug,
             channel_type=channel_type,
+            subject_code=subject_code,
         )
 
     def test_server_and_slug_must_be_unique_together(self):
@@ -58,11 +60,13 @@ class ChannelModelTests(TestCase):
             name="Computer Science",
             slug="computer-science",
             channel_type=ChannelType.SUBJECT,
+            subject_code="CS101",
         )
         second = self.create_channel(
             name="Mathematics",
             slug="mathematics",
             channel_type=ChannelType.SUBJECT,
+            subject_code="MATH201",
         )
 
         self.assertEqual(first.channel_type, ChannelType.SUBJECT)

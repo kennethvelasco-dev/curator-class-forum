@@ -427,18 +427,21 @@ class SubjectAccessPolicyTests(TestCase):
             name="Computer Science 101",
             slug="CS101",
             channel_type=ChannelType.SUBJECT,
+            subject_code="CS101",
         )
         self.subject_math = Channel.objects.create(
             server=self.server,
             name="MATH201",
             slug="MATH201",
             channel_type=ChannelType.SUBJECT,
+            subject_code="MATH201",
         )
         self.other_subject = Channel.objects.create(
             server=self.other_server,
             name="CS101",
             slug="CS101",
             channel_type=ChannelType.SUBJECT,
+            subject_code="CS101",
         )
         self.membership = create_membership(self.user, self.server)
         MembershipSubject.objects.create(
@@ -468,27 +471,28 @@ class SubjectAccessPolicyTests(TestCase):
         self.membership.save(update_fields=["status"])
         self.assertFalse(user_can_access_channel(self.user, self.subject_cs))
 
-    def test_case_variant_slug_denied(self):
+    def test_case_insensitive_subject_match_grants_access(self):
+        # Subject-code matching is case-insensitive: a stored "CS101" channel
+        # matches an approved "cs101" subject.
         MembershipSubject.objects.filter(membership=self.membership).delete()
         MembershipSubject.objects.create(membership=self.membership, subject_code="cs101")
-        # Channel slug is CS101 — exact match required; case variant denied.
-        self.assertFalse(user_can_access_channel(self.user, self.subject_cs))
+        self.assertTrue(user_can_access_channel(self.user, self.subject_cs))
 
-    def test_reversed_capitalization_denied(self):
+    def test_reversed_capitalization_matches(self):
         MembershipSubject.objects.filter(membership=self.membership).delete()
         MembershipSubject.objects.create(membership=self.membership, subject_code="Cs101")
-        self.assertFalse(user_can_access_channel(self.user, self.subject_cs))
+        self.assertTrue(user_can_access_channel(self.user, self.subject_cs))
 
-    def test_name_match_without_slug_match_denied(self):
+    def test_subject_code_name_does_not_match_different_code(self):
         MembershipSubject.objects.filter(membership=self.membership).delete()
         MembershipSubject.objects.create(
             membership=self.membership,
             subject_code="Computer Science 101",
         )
-        # Name equals subject_code but slug does not — must deny.
+        # Channel subject_code is "CS101", not "Computer Science 101" -- deny.
         self.assertFalse(user_can_access_channel(self.user, self.subject_cs))
 
-    def test_spaced_code_without_exact_slug_denied(self):
+    def test_spaced_code_without_exact_match_denied(self):
         MembershipSubject.objects.filter(membership=self.membership).delete()
         MembershipSubject.objects.create(membership=self.membership, subject_code="CS 101")
         channel = Channel.objects.create(
@@ -496,9 +500,10 @@ class SubjectAccessPolicyTests(TestCase):
             name="CS 101",
             slug="cs-101",
             channel_type=ChannelType.SUBJECT,
+            subject_code="PHYS101",
         )
+        # Stored "CS 101" does not equal stored "PHYS101" -- deny.
         self.assertFalse(user_can_access_channel(self.user, channel))
-
 
 class PresidentTransferServiceTests(TestCase):
     def setUp(self):
