@@ -1,7 +1,15 @@
 """Models for class discussions."""
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
+
+
+def _ensure_author_can_access_channel(author, channel):
+    from apps.servers.services.access import user_can_access_channel
+
+    if not user_can_access_channel(author, channel):
+        raise ValidationError("The author does not have access to this channel.")
 
 
 class Thread(models.Model):
@@ -21,6 +29,10 @@ class Thread(models.Model):
     is_edited = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def save(self, *args, **kwargs):
+        _ensure_author_can_access_channel(self.author, self.channel)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.title
@@ -43,5 +55,11 @@ class Reply(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def save(self, *args, **kwargs):
+        _ensure_author_can_access_channel(self.author, self.thread.channel)
+        super().save(*args, **kwargs)
+
     def __str__(self):
+        if self.is_anonymous:
+            return f"Anonymous reply on {self.thread}"
         return f"Reply by {self.author} on {self.thread}"
