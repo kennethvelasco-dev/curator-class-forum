@@ -4,7 +4,6 @@
 from django import forms
 
 from apps.servers.subject_codes import (
-    SUBJECT_CODE_MAX_LENGTH,
     SubjectCodeError,
     canonicalize_subject_code,
 )
@@ -15,7 +14,6 @@ class SubjectChannelForm(forms.Form):
 
     subject_code = forms.CharField(
         label="Subject code",
-        max_length=SUBJECT_CODE_MAX_LENGTH,
         strip=False,
         help_text="Enter the official subject code from the Certificate of Registration.",
     )
@@ -55,6 +53,10 @@ class SubjectChannelForm(forms.Form):
 class SubjectChannelEditForm(forms.Form):
     """Edit subject channel details and professor contact information."""
 
+    edit_version = forms.IntegerField(
+        min_value=1,
+        widget=forms.HiddenInput,
+    )
     name = forms.CharField(
         label="Subject name",
         max_length=100,

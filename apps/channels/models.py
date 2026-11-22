@@ -37,9 +37,25 @@ class Channel(models.Model):
     )
     name = models.CharField(max_length=100)
     slug = models.CharField(max_length=64)
-    professor_name = models.CharField(max_length=255, blank=True, default="")
-    professor_email = models.EmailField(max_length=254, blank=True, default="")
-    office_hours = models.CharField(max_length=255, blank=True, default="")
+    professor_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        db_default="",
+    )
+    professor_email = models.EmailField(
+        max_length=254,
+        blank=True,
+        default="",
+        db_default="",
+    )
+    office_hours = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        db_default="",
+    )
+    edit_version = models.PositiveIntegerField(default=1, db_default=1)
     channel_type = models.CharField(max_length=20, choices=ChannelType)
     subject_code = models.CharField(
         max_length=SUBJECT_CODE_MAX_LENGTH,

@@ -2,6 +2,7 @@
 """Views for class channels."""
 
 from django.contrib import messages
+from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
@@ -14,9 +15,48 @@ from apps.channels.forms import (
     SubjectChannelForm,
 )
 from apps.channels.models import Channel, ChannelType
-from apps.servers.models import Server
+from apps.servers.models import (
+    Membership,
+    MembershipRole,
+    MembershipStatus,
+    Server,
+)
 from apps.servers.permissions import can_view_server_member_list
 from apps.servers.services.access import user_can_access_channel
+
+
+def _lock_channel_management_access(user, server_id):
+    """Revalidate channel-management access using the role-change lock order."""
+    server = Server.objects.select_for_update().filter(pk=server_id).first()
+    if server is None or not server.is_active:
+        raise Http404
+
+    user_state = (
+        get_user_model()._default_manager.filter(pk=user.pk)
+        .values("is_active", "is_email_verified")
+        .first()
+    )
+    if (
+        user_state is None
+        or not user_state["is_active"]
+        or not user_state["is_email_verified"]
+    ):
+        raise Http404
+
+    membership = (
+        Membership.objects.select_for_update()
+        .filter(
+            user_id=user.pk,
+            server=server,
+            status=MembershipStatus.ACTIVE,
+            role__in=(MembershipRole.PRESIDENT, MembershipRole.OFFICER),
+        )
+        .first()
+    )
+    if membership is None:
+        raise Http404
+
+    return server
 
 
 
@@ -111,33 +151,38 @@ def create_subject_channel(request, server_id):
 
         if form.is_valid():
             subject_code = form.cleaned_data["subject_code"]
-
-            if Channel.objects.filter(
-                server=server,
-                slug=subject_code,
-            ).exists():
-                form.add_error(
-                    "subject_code",
-                    "A channel with this subject code already exists.",
-                )
-            else:
-                try:
-                    with transaction.atomic():
+            try:
+                with transaction.atomic():
+                    server = _lock_channel_management_access(
+                        request.user,
+                        server_id,
+                    )
+                    if Channel.objects.filter(
+                        server=server,
+                        slug=subject_code,
+                    ).exists():
+                        form.add_error(
+                            "subject_code",
+                            "A channel with this subject code already exists.",
+                        )
+                    else:
                         Channel.objects.create(
                             server=server,
                             name=form.cleaned_data["name"],
                             slug=subject_code,
+                            subject_code=subject_code,
                             channel_type=ChannelType.SUBJECT,
                             professor_name=form.cleaned_data["professor_name"],
                             professor_email=form.cleaned_data["professor_email"],
                             office_hours=form.cleaned_data["office_hours"],
                         )
-                except IntegrityError:
-                    form.add_error(
-                        "subject_code",
-                        "A channel with this subject code already exists.",
-                    )
-                else:
+            except IntegrityError:
+                form.add_error(
+                    "subject_code",
+                    "A channel with this subject code already exists.",
+                )
+            else:
+                if not form.errors:
                     messages.success(
                         request,
                         "Subject channel created successfully.",
@@ -180,6 +225,7 @@ def edit_subject_channel(request, server_id, channel_id):
         raise Http404
 
     initial_data = {
+        "edit_version": channel.edit_version,
         "name": channel.name,
         "professor_name": channel.professor_name,
         "professor_email": channel.professor_email,
@@ -190,29 +236,51 @@ def edit_subject_channel(request, server_id, channel_id):
         form = SubjectChannelEditForm(request.POST)
 
         if form.is_valid():
-            channel.name = form.cleaned_data["name"]
-            channel.professor_name = form.cleaned_data["professor_name"]
-            channel.professor_email = form.cleaned_data["professor_email"]
-            channel.office_hours = form.cleaned_data["office_hours"]
-            channel.save(
-                update_fields=[
-                    "name",
-                    "professor_name",
-                    "professor_email",
-                    "office_hours",
-                ]
-            )
+            with transaction.atomic():
+                server = _lock_channel_management_access(
+                    request.user,
+                    server_id,
+                )
+                channel = get_object_or_404(
+                    Channel.objects.select_for_update(),
+                    pk=channel_id,
+                    server=server,
+                    channel_type=ChannelType.SUBJECT,
+                )
+                if channel.edit_version != form.cleaned_data["edit_version"]:
+                    form.add_error(
+                        None,
+                        "Another officer has updated this channel. "
+                        "Reload this page before saving your changes.",
+                    )
+                else:
+                    channel.name = form.cleaned_data["name"]
+                    channel.professor_name = form.cleaned_data["professor_name"]
+                    channel.professor_email = form.cleaned_data["professor_email"]
+                    channel.office_hours = form.cleaned_data["office_hours"]
+                    channel.edit_version += 1
+                    channel.save(
+                        update_fields=[
+                            "name",
+                            "professor_name",
+                            "professor_email",
+                            "office_hours",
+                            "edit_version",
+                        ]
+                    )
 
-            messages.success(
-                request,
-                "Subject channel updated successfully.",
-            )
+            if not form.errors:
+                messages.success(
+                    request,
+                    "Subject channel updated successfully.",
+                )
 
-            return redirect(
+                return redirect(
                 "channels:subject",
                 server_id=server.pk,
                 channel_id=channel.pk,
-            )
+                )
+                
     else:
         form = SubjectChannelEditForm(initial=initial_data)
 
