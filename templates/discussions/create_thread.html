@@ -1,0 +1,56 @@
+
+{% extends "base.html" %}
+
+{% block title %}New Thread | Curator{% endblock %}
+
+{% block content %}
+<section class="subject-channel-page">
+    <div class="card subject-channel-card">
+        <p class="eyebrow">{{ server.name }} / {{ channel.name }}</p>
+
+        <h1>Create a New Thread</h1>
+
+        <p class="account-intro">
+            Share a question or start a discussion with members of this channel.
+        </p>
+
+        <form method="post" class="account-form">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+                <div class="form-error">
+                    {{ form.non_field_errors }}
+                </div>
+            {% endif %}
+
+            <div class="form-field">
+                {{ form.title.label_tag }}
+                {{ form.title }}
+                {% for error in form.title.errors %}
+                    <p class="form-error">{{ error }}</p>
+                {% endfor %}
+            </div>
+
+            <div class="form-field">
+                {{ form.body.label_tag }}
+                {{ form.body }}
+                {% for error in form.body.errors %}
+                    <p class="form-error">{{ error }}</p>
+                {% endfor %}
+            </div>
+
+            <div class="form-field">
+                <label>
+                    {{ form.is_anonymous }}
+                    {{ form.is_anonymous.label }}
+                </label>
+            </div>
+
+            <button type="submit" class="button">Publish Thread</button>
+            <a href="{% url 'channels:subject' server.pk channel.pk %}">
+                Cancel
+            </a>
+        </form>
+    </div>
+</section>
+{% endblock %}
