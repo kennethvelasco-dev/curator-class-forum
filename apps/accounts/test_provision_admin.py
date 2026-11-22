@@ -39,6 +39,7 @@ class ProvisionAdminCommandTests(TestCase):
         self.assertTrue(user.is_active)
         self.assertTrue(user.is_email_verified)
         self.assertTrue(user.check_password("Str0ngP@ssw0rd"))
+        self.assertRegex(user.anonymous_id, r"^CSS-\d{5}$")
         self.assertIn("Platform Admin provisioned", out)
         self.assert_no_secrets(out, err)
 

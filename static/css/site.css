@@ -438,3 +438,148 @@ h1 {
         padding: 1.25rem;
     }
 }
+
+.thread-section {
+    margin: 2rem 0;
+}
+
+.thread-section-header,
+.thread-metadata,
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.thread-section-header {
+    flex-wrap: wrap;
+    margin-bottom: 1.25rem;
+}
+
+.thread-card {
+    margin: 1rem 0;
+    padding: 1.5rem;
+    border: 1px solid #40594c;
+    border-radius: 0.65rem;
+    background: #14221d;
+}
+
+.thread-card h3 {
+    margin-top: 0;
+    color: #f1f5f2;
+}
+
+.thread-author,
+.reply-author {
+    color: #c2d0c8;
+    font-weight: 650;
+}
+
+.thread-metadata {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    margin: 1rem 0;
+}
+
+.reply-count-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.65rem;
+    border: 1px solid #4f8064;
+    border-radius: 999px;
+    background: #1b382a;
+    color: #b7e5c8;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.thread-activity,
+.reply-date {
+    color: #a6b8ad;
+    font-size: 0.9rem;
+}
+
+.thread-body,
+.reply-body {
+    color: #e2ebe5;
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+}
+
+.thread-replies {
+    margin-top: 1.25rem;
+    border-top: 1px solid #40594c;
+    padding-top: 1rem;
+}
+
+.thread-replies summary {
+    width: fit-content;
+    color: #98d7b5;
+    font-weight: 650;
+    cursor: pointer;
+}
+
+.thread-replies summary:focus-visible,
+.pagination-link:focus-visible {
+    outline: 3px solid #98d7b5;
+    outline-offset: 3px;
+}
+
+.reply-list {
+    display: grid;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.reply-card {
+    padding: 1rem;
+    border-left: 2px solid #4f8064;
+    background: #1b2c25;
+}
+
+.reply-card p:first-child {
+    margin-top: 0;
+}
+
+.pagination {
+    justify-content: center;
+    flex-wrap: wrap;
+    margin: 2rem 0;
+    color: #c2d0c8;
+}
+
+.pagination-link,
+.pagination-disabled {
+    padding: 0.55rem 0.85rem;
+    border: 1px solid #40594c;
+    border-radius: 0.35rem;
+}
+
+.pagination-link {
+    color: #98d7b5;
+    text-decoration: none;
+}
+
+.pagination-link:hover {
+    background: #1b382a;
+}
+
+.pagination-disabled {
+    color: #809187;
+}
+
+@media (max-width: 540px) {
+    .thread-card {
+        padding: 1rem;
+    }
+
+    .thread-section-header {
+        align-items: flex-start;
+    }
+
+    .thread-metadata {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}

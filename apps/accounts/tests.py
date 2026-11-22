@@ -84,8 +84,16 @@ class RegistrationFormTests(TestCase):
             with transaction.atomic():
                 User.objects.bulk_create(
                     [
-                        User(email="ada@example.com", full_name="Ada"),
-                        User(email="ADA@EXAMPLE.COM", full_name="Duplicate"),
+                        User(
+                            email="ada@example.com",
+                            full_name="Ada",
+                            anonymous_id="CSS-00002",
+                        ),
+                        User(
+                            email="ADA@EXAMPLE.COM",
+                            full_name="Duplicate",
+                            anonymous_id="CSS-00001",
+                        ),
                     ]
                 )
 

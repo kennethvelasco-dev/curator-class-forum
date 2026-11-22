@@ -1,3 +1,4 @@
+
 {% extends "base.html" %}
 
 {% block title %}{{ channel.name }} | Curator{% endblock %}
@@ -45,6 +46,126 @@
             Welcome to {{ channel.name }}.
         </p>
     </div>
+
+    <section class="thread-section">
+        <div class="thread-section-header">
+            <h2>Discussions</h2>
+
+            <a
+                class="button"
+                href="{% url 'channels:create_thread' server.pk channel.pk %}"
+            >
+                Start a Thread
+            </a>
+        </div>
+
+        {% for thread in threads %}
+            <article class="thread-card">
+                <h3>{{ thread.title }}</h3>
+
+                <p class="thread-author">
+                    Posted by:
+                    {% if thread.is_anonymous %}
+                        {{ thread.author.anonymous_id }}
+                    {% else %}
+                        {{ thread.author.full_name }}
+                    {% endif %}
+                </p>
+
+                <div class="thread-metadata">
+                    <span class="reply-count-badge">
+                        {{ thread.reply_count }} repl{{ thread.reply_count|pluralize:"y,ies" }}
+                    </span>
+                    <time
+                        class="thread-activity"
+                        datetime="{{ thread.last_activity|date:'c' }}"
+                    >
+                        Last activity
+                        {{ thread.last_activity|date:"M d, Y - h:i A" }}
+                    </time>
+                </div>
+
+                <div class="thread-body">
+                    {{ thread.body|linebreaks }}
+                </div>
+
+                <details class="thread-replies">
+                    <summary>
+                        View replies
+                        <span class="reply-count-badge">
+                            {{ thread.reply_count }}
+                        </span>
+                    </summary>
+                    <div class="reply-list">
+                        {% for reply in thread.replies.all %}
+                            <article class="reply-card">
+                                <p class="reply-author">
+                                    Posted by:
+                                    {% if reply.is_anonymous %}
+                                        {{ reply.author.anonymous_id }}
+                                    {% else %}
+                                        {{ reply.author.full_name }}
+                                    {% endif %}
+                                </p>
+                                <div class="reply-body">
+                                    {{ reply.body|linebreaks }}
+                                </div>
+                                <time
+                                    class="reply-date"
+                                    datetime="{{ reply.created_at|date:'c' }}"
+                                >
+                                    {{ reply.created_at|date:"M d, Y - h:i A" }}
+                                </time>
+                            </article>
+                        {% empty %}
+                            <p class="muted">No replies yet.</p>
+                        {% endfor %}
+                    </div>
+                </details>
+            </article>
+        {% empty %}
+            <p class="muted">
+                No discussions yet. Be the first to start a thread!
+            </p>
+        {% endfor %}
+    </section>
+
+    {% if page_obj.has_other_pages %}
+        <nav class="pagination" aria-label="Thread pagination">
+            {% if page_obj.has_previous %}
+                <a
+                    class="pagination-link"
+                    href="?page={{ page_obj.previous_page_number }}"
+                    rel="prev"
+                >
+                    Previous
+                </a>
+            {% else %}
+                <span class="pagination-disabled" aria-disabled="true">
+                    Previous
+                </span>
+            {% endif %}
+
+            <span class="pagination-status">
+                Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+            </span>
+
+            {% if page_obj.has_next %}
+                <a
+                    class="pagination-link"
+                    href="?page={{ page_obj.next_page_number }}"
+                    rel="next"
+                >
+                    Next
+                </a>
+            {% else %}
+                <span class="pagination-disabled" aria-disabled="true">
+                    Next
+                </span>
+            {% endif %}
+        </nav>
+    {% endif %}
+
     {% if can_edit %}
         <p>
             <a href="{% url 'channels:edit_subject' server.pk channel.pk %}">
@@ -52,6 +173,7 @@
             </a>
         </p>
     {% endif %}
+
     <a href="{% url 'accounts:dashboard' %}">
         Back to Dashboard
     </a>
