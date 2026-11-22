@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
+from django.urls import reverse
 
 from apps.channels.models import Channel, ChannelType
 from apps.discussions.models import Reply, Thread
@@ -43,6 +44,7 @@ class DiscussionModelTests(TestCase):
             server=self.server,
             name="General",
             slug="general",
+            subject_code="general",
             channel_type=ChannelType.SUBJECT,
         )
         self.default_channel = Channel.objects.create(
@@ -313,3 +315,149 @@ class DiscussionModelTests(TestCase):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 reply_author.delete()
+class ThreadCreationViewTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="posting-student@example.com",
+            password="TestPassword123!",
+            full_name="Posting Student",
+        )
+        self.user.is_email_verified = True
+        self.user.save(update_fields=["is_email_verified"])
+
+        self.server = Server.objects.create(
+            name="Posting Test Server",
+            slug="posting-test-server",
+            created_by=self.user,
+        )
+
+        self.membership = Membership.objects.create(
+            user=self.user,
+            server=self.server,
+            role=MembershipRole.STUDENT,
+            status=MembershipStatus.ACTIVE,
+        )
+
+        MembershipSubject.objects.create(
+            membership=self.membership,
+            subject_code="general",
+        )
+
+        self.channel = Channel.objects.create(
+            server=self.server,
+            name="General",
+            slug="general",
+            subject_code="general",
+            channel_type=ChannelType.SUBJECT,
+        )
+
+        self.client.force_login(self.user)
+
+        self.create_url = reverse(
+            "channels:create_thread",
+            args=[self.server.pk, self.channel.pk],
+        )
+        self.subject_url = reverse(
+            "channels:subject",
+            args=[self.server.pk, self.channel.pk],
+        )
+
+    def test_authorized_member_can_open_thread_form(self):
+        response = self.client.get(self.create_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Create a New Thread")
+
+    def test_authorized_member_can_publish_thread(self):
+        response = self.client.post(
+            self.create_url,
+            {
+                "title": "How do we prepare for the exam?",
+                "body": "I would like to discuss the review topics.",
+            },
+        )
+
+        self.assertRedirects(response, self.subject_url)
+        self.assertTrue(
+            Thread.objects.filter(
+                channel=self.channel,
+                author=self.user,
+                title="How do we prepare for the exam?",
+            ).exists()
+        )
+
+    def test_empty_title_is_rejected(self):
+        response = self.client.post(
+            self.create_url,
+            {
+                "title": "   ",
+                "body": "This is a valid question body.",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Please enter a question title.")
+        self.assertEqual(Thread.objects.count(), 0)
+
+    def test_title_over_255_characters_is_rejected(self):
+        response = self.client.post(
+            self.create_url,
+            {
+                "title": "T" * 256,
+                "body": "This is a valid question body.",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "The title cannot exceed 255 characters.")
+        self.assertEqual(Thread.objects.count(), 0)
+
+    def test_body_over_10000_characters_is_rejected(self):
+        response = self.client.post(
+            self.create_url,
+            {
+                "title": "Valid question",
+                "body": "B" * 10001,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "The question details cannot exceed 10,000 characters.",
+        )
+        self.assertEqual(Thread.objects.count(), 0)
+
+    def test_posted_script_is_escaped_in_thread_feed(self):
+        script_text = "<script>alert(1)</script>"
+
+        self.client.post(
+            self.create_url,
+            {
+                "title": "Security test",
+                "body": script_text,
+            },
+        )
+
+        response = self.client.get(self.subject_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "&lt;script&gt;alert(1)&lt;/script&gt;",
+        )
+        self.assertNotContains(response, script_text)
+
+    def test_unauthorized_user_cannot_open_thread_form(self):
+        outsider = User.objects.create_user(
+            email="outsider@example.com",
+            password="TestPassword123!",
+            full_name="Outsider",
+        )
+        outsider.is_email_verified = True
+        outsider.save(update_fields=["is_email_verified"])
+        self.client.force_login(outsider)
+
+        response = self.client.get(self.create_url)
+
+        self.assertEqual(response.status_code, 404)

@@ -1,3 +1,4 @@
+
 {% extends "base.html" %}
 
 {% block title %}{{ channel.name }} | Curator{% endblock %}
@@ -45,6 +46,47 @@
             Welcome to {{ channel.name }}.
         </p>
     </div>
+
+    <section class="thread-section">
+        <div class="thread-section-header">
+            <h2>Discussions</h2>
+
+            <a
+                class="button"
+                href="{% url 'channels:create_thread' server.pk channel.pk %}"
+            >
+                Start a Thread
+            </a>
+        </div>
+
+        {% for thread in threads %}
+            <article class="thread-card">
+                <h3>{{ thread.title }}</h3>
+
+                <p class="thread-author">
+                    Posted by:
+                    {% if thread.is_anonymous %}
+                        Anonymous
+                    {% else %}
+                        {{ thread.author.full_name }}
+                    {% endif %}
+                </p>
+
+                <div class="thread-body">
+                    {{ thread.body|linebreaks }}
+                </div>
+
+                <p class="thread-date">
+                    {{ thread.created_at|date:"M d, Y - h:i A" }}
+                </p>
+            </article>
+        {% empty %}
+            <p class="muted">
+                No discussions yet. Be the first to start a thread!
+            </p>
+        {% endfor %}
+    </section>
+
     {% if can_edit %}
         <p>
             <a href="{% url 'channels:edit_subject' server.pk channel.pk %}">
@@ -52,6 +94,7 @@
             </a>
         </p>
     {% endif %}
+
     <a href="{% url 'accounts:dashboard' %}">
         Back to Dashboard
     </a>

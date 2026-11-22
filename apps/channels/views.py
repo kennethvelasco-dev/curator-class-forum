@@ -115,7 +115,9 @@ def subject_channel(request, server_id, channel_id):
         channel,
     ):
         raise Http404
-
+    threads = channel.threads.select_related("author").order_by(
+        "-created_at"
+    )
     return render(
         request,
         "channels/subject.html",
@@ -123,6 +125,7 @@ def subject_channel(request, server_id, channel_id):
             "server": server,
             "channel": channel,
             "can_edit": can_view_server_member_list(request.user, server),
+            "threads": threads,
         },
     )
 
@@ -269,17 +272,17 @@ def edit_subject_channel(request, server_id, channel_id):
                         ]
                     )
 
-            if not form.errors:
-                messages.success(
-                    request,
-                    "Subject channel updated successfully.",
-                )
+                if not form.errors:
+                    messages.success(
+                        request,
+                        "Subject channel updated successfully.",
+                     )
 
-                return redirect(
-                "channels:subject",
-                server_id=server.pk,
-                channel_id=channel.pk,
-                )
+                    return redirect(
+                        "channels:edit_subject",
+                        server_id=server.pk,
+                        channel_id=channel.pk,
+                    )
                 
     else:
         form = SubjectChannelEditForm(initial=initial_data)
