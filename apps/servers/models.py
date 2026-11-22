@@ -5,6 +5,13 @@ from django.core.exceptions import ValidationError
 from django.db import models, router, transaction
 from django.utils import timezone
 
+from apps.servers.subject_codes import (
+    SUBJECT_CODE_MAX_LENGTH,
+    SUBJECT_CODE_NORMALIZED_MAX_LENGTH,
+    SubjectCodeError,
+    canonicalize_subject_code,
+)
+
 
 class RequestStatus(models.TextChoices):
     PENDING = "pending", "Pending"
@@ -295,15 +302,80 @@ class MembershipSubject(models.Model):
         on_delete=models.CASCADE,
         related_name="subjects",
     )
-    subject_code = models.CharField(max_length=64)
+    subject_code = models.CharField(max_length=SUBJECT_CODE_MAX_LENGTH)
+    subject_code_normalized = models.CharField(
+        max_length=SUBJECT_CODE_NORMALIZED_MAX_LENGTH,
+        null=True,
+        blank=True,
+    )
     subject_name = models.CharField(max_length=255, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.subject_code and not self.subject_code_normalized:
+            try:
+                self.subject_code_normalized = canonicalize_subject_code(
+                    self.subject_code
+                ).casefold()
+            except SubjectCodeError:
+                pass
+
+    def save(self, *args, **kwargs):
+        """Save MembershipSubject and derive subject_code_normalized.
+
+        Direct QuerySet.update() and bulk_create() operations on these derived
+        fields bypass model save() and must not be used without explicitly
+        maintaining the invariant.
+        """
+        update_fields = kwargs.get("update_fields")
+        materialized_update_fields = (
+            set(update_fields) if update_fields is not None else None
+        )
+
+        if (
+            materialized_update_fields is not None
+            and "subject_code_normalized" in materialized_update_fields
+            and "subject_code" not in materialized_update_fields
+        ):
+            raise ValueError(
+                "Cannot update 'subject_code_normalized' directly without 'subject_code'."
+            )
+
+        should_update_normalized = (
+            materialized_update_fields is None
+            or "subject_code" in materialized_update_fields
+        )
+
+        if should_update_normalized:
+            if self.subject_code is not None:
+                self.subject_code_normalized = canonicalize_subject_code(
+                    self.subject_code
+                ).casefold()
+            else:
+                self.subject_code_normalized = None
+
+            if (
+                materialized_update_fields is not None
+                and "subject_code" in materialized_update_fields
+            ):
+                materialized_update_fields.add("subject_code_normalized")
+                kwargs["update_fields"] = materialized_update_fields
+        else:
+            if materialized_update_fields is not None:
+                kwargs["update_fields"] = materialized_update_fields
+
+        super().save(*args, **kwargs)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=("membership", "subject_code"),
                 name="servers_membershipsubject_unique_code",
+            ),
+            models.UniqueConstraint(
+                fields=("membership", "subject_code_normalized"),
+                name="servers_membershipsubject_unique_normalized_code",
             ),
         ]
 
