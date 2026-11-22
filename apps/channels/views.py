@@ -3,7 +3,10 @@
 
 from django.contrib import messages
 from django.contrib.auth import get_user_model
+from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
+from django.db.models import Count, F, Max, Prefetch
+from django.db.models.functions import Coalesce
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.cache import never_cache
@@ -15,6 +18,7 @@ from apps.channels.forms import (
     SubjectChannelForm,
 )
 from apps.channels.models import Channel, ChannelType
+from apps.discussions.models import Reply
 from apps.servers.models import (
     Membership,
     MembershipRole,
@@ -115,9 +119,27 @@ def subject_channel(request, server_id, channel_id):
         channel,
     ):
         raise Http404
-    threads = channel.threads.select_related("author").order_by(
-        "-created_at"
+    threads = (
+        channel.threads.select_related("author")
+        .annotate(
+            reply_count=Count("replies"),
+            last_activity=Coalesce(
+                Max("replies__created_at"),
+                F("created_at"),
+            ),
+        )
+        .order_by("-last_activity", "-pk")
+        .prefetch_related(
+            Prefetch(
+                "replies",
+                queryset=Reply.objects.select_related("author").order_by(
+                    "created_at",
+                    "pk",
+                ),
+            )
+        )
     )
+    page_obj = Paginator(threads, 20).get_page(request.GET.get("page"))
     return render(
         request,
         "channels/subject.html",
@@ -125,7 +147,8 @@ def subject_channel(request, server_id, channel_id):
             "server": server,
             "channel": channel,
             "can_edit": can_view_server_member_list(request.user, server),
-            "threads": threads,
+            "threads": page_obj.object_list,
+            "page_obj": page_obj,
         },
     )
 

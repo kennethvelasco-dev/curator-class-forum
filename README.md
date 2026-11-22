@@ -69,6 +69,16 @@ implemented yet.
 
 Sprint 1 database entities and cardinality are documented in [docs/database-schema.md](docs/database-schema.md). The document distinguishes implemented account models from future sprint models that are intentionally not yet created.
 
+### Anonymous identifier rollout
+
+The anonymous identifier migrations are staged for rolling deployments. First
+apply `accounts.0007_add_anonymous_identifier`, which adds a nullable unique
+column. Deploy the application version that assigns identifiers on user saves
+and drain all older application workers. Then apply the remaining migrations;
+`accounts.0008_backfill_anonymous_identifiers` fills any remaining NULL values
+and makes the column non-null. Do not apply migration 0008 while older workers
+that create users without identifiers are still running.
+
 ## Configuration
 
 Settings are loaded from environment variables, with values in a local `.env`

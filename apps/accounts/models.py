@@ -2,8 +2,14 @@
 
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser
-from django.db import models
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, models, router, transaction
 from django.db.models.functions import Lower
+
+from apps.accounts.anonymous_identifiers import (
+    ANONYMOUS_IDENTIFIER_ATTEMPTS,
+    generate_anonymous_identifier,
+)
 
 
 class UserManager(BaseUserManager):
@@ -56,6 +62,11 @@ class User(AbstractUser):
 
     email = models.EmailField(unique=True)
     full_name = models.CharField(max_length=255)
+    anonymous_id = models.CharField(
+        max_length=9,
+        unique=True,
+        editable=False,
+    )
     is_email_verified = models.BooleanField(default=False)
     consent_accepted = models.BooleanField(default=False)
     consent_at = models.DateTimeField(blank=True, null=True)
@@ -80,7 +91,60 @@ class User(AbstractUser):
 
     def save(self, *args, **kwargs):
         self.email = UserManager.normalize_email(self.email)
-        super().save(*args, **kwargs)
+        using = kwargs.get("using") or router.db_for_write(
+            type(self),
+            instance=self,
+        )
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            update_fields = set(update_fields)
+            kwargs["update_fields"] = update_fields
+
+        if self.pk is not None:
+            persisted_id = (
+                type(self)
+                ._base_manager.using(using)
+                .filter(pk=self.pk)
+                .values_list("anonymous_id", flat=True)
+                .first()
+            )
+            if persisted_id is not None:
+                if self.anonymous_id not in (None, persisted_id):
+                    raise ValidationError(
+                        {"anonymous_id": "Anonymous identifiers are permanent."}
+                    )
+                self.anonymous_id = persisted_id
+                return super().save(*args, **kwargs)
+
+        for _ in range(ANONYMOUS_IDENTIFIER_ATTEMPTS):
+            candidate = generate_anonymous_identifier()
+            self.anonymous_id = candidate
+            if update_fields is not None:
+                update_fields.add("anonymous_id")
+
+            try:
+                with transaction.atomic(using=using):
+                    super().save(*args, **kwargs)
+            except IntegrityError:
+                collision = (
+                    type(self)
+                    ._base_manager.using(using)
+                    .filter(anonymous_id=candidate)
+                    .exclude(pk=self.pk)
+                    .exists()
+                )
+                if not collision:
+                    self.anonymous_id = None
+                    raise
+                self.anonymous_id = None
+                continue
+            return
+
+        self.anonymous_id = None
+        raise RuntimeError(
+            "Could not allocate a unique anonymous identifier after "
+            f"{ANONYMOUS_IDENTIFIER_ATTEMPTS} attempts."
+        )
 
     def get_full_name(self):
         return self.full_name
