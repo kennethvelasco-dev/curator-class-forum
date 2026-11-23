@@ -63,3 +63,4 @@ class Reply(models.Model):
         if self.is_anonymous:
             return f"Anonymous reply on {self.thread}"
         return f"Reply by {self.author} on {self.thread}"
+from apps.discussions.anonymity.models import ThreadAlias  # noqa: E402,F401  (Issue #36)

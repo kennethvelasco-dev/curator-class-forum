@@ -1,0 +1,8 @@
+{% comment %}
+Renders who wrote a post. Expects `identity`, a PostIdentity.
+Never read the post's author here: no name, e-mail, id, or data attribute of a user.
+{% endcomment %}
+<span class="author-identity{% if identity.is_anonymous %} author-identity--anonymous{% endif %}">
+  <span class="author-identity__name">{{ identity.display_name }}</span>
+  {% if identity.show_author_badge %}<span class="author-badge">Author</span>{% endif %}
+</span>

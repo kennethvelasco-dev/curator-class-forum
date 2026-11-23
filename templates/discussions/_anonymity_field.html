@@ -1,0 +1,21 @@
+{% comment %}
+"Post Anonymously" control with the FR-028 notice. Expects `field`
+(form.is_anonymous). The notice is in the HTML without JavaScript;
+static/js/anonymity.js hides it only while the box is unchecked.
+{% endcomment %}
+<div class="anonymity-control" data-anonymity-control>
+  <div class="anonymity-control__choice">
+    {{ field }}
+    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+  </div>
+  {% for error in field.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+  <div class="anonymity-notice" data-anonymity-notice role="note" aria-live="polite">
+    <p>
+      Your name and e-mail address are hidden from classmates when you post
+      anonymously. Under the class rules, the President of this server can view
+      who wrote a reported or flagged anonymous post, and the platform Admin can
+      do so for a server named in an abuse report. Any such view requires a
+      stated reason, is recorded in an audit log, and the author is notified.
+    </p>
+  </div>
+</div>
