@@ -52,6 +52,37 @@
             </a>
         </p>
     {% endif %}
+    <a href="{% url 'channels:create_thread' server.pk channel.pk %}" class="button">
+        Start a Thread
+    </a>
+
+    <section class="thread-section">
+        <h2>Discussions</h2>
+
+        {% for item in thread_items %}
+        <article class="thread-card">
+            <h3>{{ item.title }}</h3>
+
+            <p class="thread-author">
+                Posted by:
+                {% include "discussions/_identity.html" with identity=item.identity %}
+            </p>
+
+            <div class="thread-body">
+                {{ item.body|linebreaks }}
+            </div>
+
+            <p class="thread-date">
+                {{ item.created_at|date:"M d, Y - h:i A" }}
+            </p>
+        </article>
+        {% empty %}
+        <p class="muted">
+            No discussions yet. Be the first to start a thread!
+        </p>
+        {% endfor %}
+    </section>
+
     <a href="{% url 'accounts:dashboard' %}">
         Back to Dashboard
     </a>

@@ -15,6 +15,7 @@ from apps.channels.forms import (
     SubjectChannelForm,
 )
 from apps.channels.models import Channel, ChannelType
+from apps.discussions.anonymity.service import resolve_thread_identities
 from apps.servers.models import (
     Membership,
     MembershipRole,
@@ -116,6 +117,18 @@ def subject_channel(request, server_id, channel_id):
     ):
         raise Http404
 
+    threads = list(channel.threads.order_by("-created_at"))
+    # Only display-safe fields reach the template: no author, e-mail, or id.
+    thread_items = [
+        {
+            "id": thread.pk,
+            "title": thread.title,
+            "body": thread.body,
+            "created_at": thread.created_at,
+            "identity": identity,
+        }
+        for thread, identity in zip(threads, resolve_thread_identities(threads))
+    ]
     return render(
         request,
         "channels/subject.html",
@@ -123,6 +136,7 @@ def subject_channel(request, server_id, channel_id):
             "server": server,
             "channel": channel,
             "can_edit": can_view_server_member_list(request.user, server),
+            "thread_items": thread_items,
         },
     )
 

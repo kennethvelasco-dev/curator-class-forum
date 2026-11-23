@@ -44,6 +44,7 @@ class DiscussionModelTests(TestCase):
             name="General",
             slug="general",
             channel_type=ChannelType.SUBJECT,
+            subject_code="general",
         )
         self.default_channel = Channel.objects.create(
             server=self.server,

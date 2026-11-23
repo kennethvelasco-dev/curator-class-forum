@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}New Thread | Curator{% endblock %}
+
+{% block content %}
+<section class="subject-page">
+    <header class="subject-header">
+        <p class="eyebrow">{{ server.name }}</p>
+        <h1>{{ channel.name }}</h1>
+        <p class="subject-code">Subject Code: {{ channel.slug }}</p>
+    </header>
+
+    <div class="subject-content">
+        <div class="card subject-channel-card">
+            <h1>Create a New Thread</h1>
+            <p class="account-intro">
+                Share a question or start a discussion with members of this channel.
+            </p>
+
+            <form method="post" class="account-form">
+                {% csrf_token %}
+
+                {% if form.non_field_errors %}
+                <div class="form-error">
+                    {{ form.non_field_errors }}
+                </div>
+                {% endif %}
+
+                <div class="form-field">
+                    {{ form.title.label_tag }}
+                    {{ form.title }}
+                    {% for error in form.title.errors %}
+                    <p class="form-error">{{ error }}</p>
+                    {% endfor %}
+                </div>
+
+                <div class="form-field">
+                    {{ form.body.label_tag }}
+                    {{ form.body }}
+                    {% for error in form.body.errors %}
+                    <p class="form-error">{{ error }}</p>
+                    {% endfor %}
+                </div>
+
+                <div class="form-field">
+                    {% include "discussions/_anonymity_field.html" with field=form.is_anonymous %}
+                </div>
+
+                <button type="submit" class="button">Publish Thread</button>
+                <a href="{% url 'channels:subject' server.pk channel.pk %}">Cancel</a>
+            </form>
+        </div>
+    </div>
+</section>
+<script src="{% static 'js/anonymity.js' %}" defer></script>
+{% endblock %}

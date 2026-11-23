@@ -4,6 +4,7 @@
 from django.urls import path
 
 from apps.channels import views
+from apps.discussions import views as discussion_views
 
 app_name = "channels"
 
@@ -27,6 +28,11 @@ urlpatterns = [
         "<int:server_id>/subjects/create/",
         views.create_subject_channel,
         name="create_subject",
+    ),
+    path(
+        "<int:server_id>/subjects/<int:channel_id>/new-thread/",
+        discussion_views.create_thread,
+        name="create_thread",
     ),
 
 ]
